@@ -217,7 +217,6 @@ def _build_analysis_response(
 
     executive_summary = build_executive_briefing(summary, consolidated_recommendations, opportunity_groups)
     executive_summary["business_context"] = f"Perfil aplicado: {profile.get('sector_label')} · Objetivo: {profile.get('analysis_goal_label')} · Margen objetivo: {profile.get('target_margin_pct')}%."
-    executive_summary["business_context"] = f"Perfil aplicado: {profile.get('sector_label')} · Objetivo: {profile.get('analysis_goal_label')} · Margen objetivo: {profile.get('target_margin_pct')}%."
 
     if merge_summary:
         files_count = merge_summary.get("files_count", 0)
