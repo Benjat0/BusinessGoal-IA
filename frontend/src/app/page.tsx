@@ -495,7 +495,7 @@ export default function Home() {
         <div className="mx-auto max-w-[1500px] px-4 py-5 sm:px-6 lg:px-8">
           <header className="app-header mb-5 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <p className="text-2xl font-black tracking-tight text-white sm:text-3xl">Buenos días, Javier 👋</p>
+              <p className="text-2xl font-black tracking-tight text-white sm:text-3xl">Panel ejecutivo</p>
               <p className="mt-1 text-sm text-slate-400">Hoy hemos detectado {summary.opportunities} oportunidades de mejora.</p>
               <div className="mt-3 inline-flex max-w-full items-center gap-2 rounded-full border border-slate-800 bg-slate-950/60 px-3 py-1.5 text-xs text-slate-400">
                 <span className="h-2 w-2 rounded-full bg-emerald-400" />
