@@ -2,13 +2,18 @@ from __future__ import annotations
 
 import io
 import json
+import uuid
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
+from core.analysis_period import build_analysis_period
+from core.analysis_snapshot import build_analysis_snapshot
 from core.business_profile import business_profile_options, parse_business_profile
+from core.economic_value import build_economic_value_summary
 from core.field_mapper import CANONICAL_FIELDS, detect_columns, normalize_dataframe
 from core.file_validator import FIELD_DESCRIPTIONS, FIELD_LABELS, FIELD_OPTIONS, build_reverse_mapping, infer_file_type, validate_file
 from core.kpi_engine import calculate_summary_kpis, enrich_product_metrics, product_records
@@ -149,6 +154,10 @@ def _preview_rows(df: pd.DataFrame, limit: int = 6) -> List[Dict[str, Any]]:
     return safe_df.astype(str).to_dict(orient="records")
 
 
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
 def _parse_mapping_override(mapping_json: Optional[str], default_mapping: Dict[str, Optional[str]]) -> Dict[str, Optional[str]]:
     if not mapping_json:
         return default_mapping
@@ -183,8 +192,15 @@ def _build_analysis_response(
     business_profile: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Shared Decision Engine pipeline for single-file and multi-file analysis."""
+    analysis_id = str(uuid.uuid4())
+    analysis_created_at = _utc_now_iso()
     profile = business_profile or parse_business_profile()
     enriched = enrich_product_metrics(normalized_df)
+    analysis_period = build_analysis_period(
+        detected_columns=detected_columns,
+        column_mapping=column_mapping,
+        normalized_df=normalized_df,
+    )
 
     summary = calculate_summary_kpis(enriched)
     recommendations = build_recommendations(enriched, business_profile=profile)
@@ -231,15 +247,37 @@ def _build_analysis_response(
         "margin_improvement": margin_improvement,
         "sales_protection": sales_protection,
         "total_impact": total_impact,
+        "is_additive": False,
         "explanation": (
-            "El impacto económico combina capital inmovilizado que puede liberarse, "
-            "margen que puede mejorarse y ventas que conviene proteger evitando roturas de stock. "
-            "La caja liberable no debe interpretarse como beneficio contable, sino como liquidez potencial."
+            "El valor económico identificado combina categorías heterogéneas: caja liberable, "
+            "margen mejorable y ventas expuestas. No es beneficio contable agregado ni impacto neto. "
+            "La caja liberable no debe interpretarse como beneficio, sino como liquidez potencial."
         ),
     }
+    economic_value_summary = build_economic_value_summary(
+        recommendations=recommendations,
+        analysis_period=analysis_period,
+    )
     scenario_simulation = build_scenario_simulation(summary, recommendations, profile)
+    analysis_snapshot = build_analysis_snapshot(
+        analysis_id=analysis_id,
+        analysis_created_at=analysis_created_at,
+        analysis_period=analysis_period,
+        business_profile=profile,
+        summary=summary,
+        economic_value_summary=economic_value_summary,
+        enriched=enriched,
+        recommendations=recommendations,
+        column_mapping=column_mapping,
+        mapping_confidence=mapping_confidence,
+        validation=validation,
+        merge_summary=merge_summary,
+    )
 
     response = {
+        "analysis_id": analysis_id,
+        "analysis_created_at": analysis_created_at,
+        "analysis_period": analysis_period,
         "file_name": file_name,
         "rows": int(rows),
         "columns": int(columns),
@@ -254,6 +292,8 @@ def _build_analysis_response(
         "business_profile": profile,
         "executive_summary": executive_summary,
         "impact_breakdown": impact_breakdown,
+        "economic_value_summary": economic_value_summary,
+        "analysis_snapshot": analysis_snapshot,
         "trust_layer": build_trust_layer(summary, recommendations, consolidated_recommendations),
         "scenario_simulation": scenario_simulation,
         "recommendations": recommendations,
@@ -330,79 +370,17 @@ async def analyze_file(
 
     profile = parse_business_profile(business_profile_json)
     normalized = normalize_dataframe(df, final_mapping)
-    enriched = enrich_product_metrics(normalized)
-
-    summary = calculate_summary_kpis(enriched)
-    recommendations = build_recommendations(enriched, business_profile=profile)
-    consolidated_recommendations = build_consolidated_recommendations(recommendations)
-    action_plan = build_action_plan(consolidated_recommendations)
-    opportunity_groups = build_opportunity_groups(recommendations)
-    today_actions = build_today_actions(consolidated_recommendations)
-
-    cash_release = _sum_impact(recommendations, category="cash_release")
-    sales_protection = _sum_impact(recommendations, category="sales_protection")
-    margin_improvement = _sum_impact(recommendations, category="margin_improvement")
-    total_impact = _sum_impact(recommendations)
-    risks_detected = sum(1 for rec in recommendations if rec.get("type") == "stockout_risk")
-    opportunities_detected = len(recommendations) - risks_detected
-    inventory_value = float(summary.get("total_inventory_value", 0) or 0)
-
-    summary.update({
-        "potential_recoverable_benefit": round(total_impact, 2),
-        "cash_release_potential": cash_release,
-        "capital_immobilized_reducible": cash_release,
-        "sales_protection_potential": sales_protection,
-        "margin_improvement_potential": margin_improvement,
-        "estimated_economic_leakage": round((cash_release * 0.08) + margin_improvement + sales_protection, 2),
-        "risks_detected": risks_detected,
-        "opportunities_detected": opportunities_detected,
-        "immobilized_capital_pct": round((cash_release / inventory_value * 100) if inventory_value else 0, 2),
-        "estimated_profit_after_actions": round(float(summary.get("total_gross_profit_estimated", 0) or 0) + margin_improvement + sales_protection, 2),
-    })
-    summary.update(_calculate_business_score(summary, recommendations))
-
-    executive_summary = build_executive_briefing(summary, consolidated_recommendations, opportunity_groups)
-
-    impact_breakdown = {
-        "cash_release": cash_release,
-        "capital_immobilized_reducible": cash_release,
-        "estimated_loss_or_risk": round((cash_release * 0.08) + margin_improvement + sales_protection, 2),
-        "margin_improvement": margin_improvement,
-        "sales_protection": sales_protection,
-        "total_impact": total_impact,
-        "explanation": (
-            "El impacto económico combina capital inmovilizado que puede liberarse, "
-            "margen que puede mejorarse y ventas que conviene proteger evitando roturas de stock. "
-            "La caja liberable no debe interpretarse como beneficio contable, sino como liquidez potencial."
-        ),
-    }
-    scenario_simulation = build_scenario_simulation(summary, recommendations, profile)
-
-    return {
-        "file_name": file.filename,
-        "rows": int(df.shape[0]),
-        "columns": int(df.shape[1]),
-        "detected_columns": mapping_result.detected_columns,
-        "column_mapping": final_mapping,
-        "column_to_field_mapping": build_reverse_mapping(final_mapping),
-        "mapping_confidence": mapping_result.confidence,
-        "missing_required_fields": validation["missing_required_fields"],
-        "file_validation": validation,
-        "summary_kpis": summary,
-        "business_status": _build_business_status(summary, recommendations),
-        "business_profile": profile,
-        "executive_summary": executive_summary,
-        "impact_breakdown": impact_breakdown,
-        "trust_layer": build_trust_layer(summary, recommendations, consolidated_recommendations),
-        "scenario_simulation": scenario_simulation,
-        "recommendations": recommendations,
-        "consolidated_recommendations": consolidated_recommendations,
-        "opportunity_groups": opportunity_groups,
-        "today_actions": today_actions,
-        "action_plan": action_plan,
-        "products_preview": product_records(enriched, limit=100),
-        "status": "completed",
-    }
+    return _build_analysis_response(
+        file_name=file.filename or "archivo",
+        rows=int(df.shape[0]),
+        columns=int(df.shape[1]),
+        detected_columns=mapping_result.detected_columns,
+        column_mapping=final_mapping,
+        mapping_confidence=mapping_result.confidence,
+        validation=validation,
+        normalized_df=normalized,
+        business_profile=profile,
+    )
 
 
 def _safe_parse_mapping(mapping_json: Optional[str]) -> Optional[Dict[str, Optional[str]]]:
