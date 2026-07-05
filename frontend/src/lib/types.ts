@@ -1,5 +1,86 @@
 export type RecommendationPriority = "high" | "medium" | "low" | string;
 
+export type AnalysisPeriodKind = "ASSUMED_WINDOW" | "DETECTED_DATE_RANGE" | "UNKNOWN" | string;
+
+export type AnalysisPeriod = {
+  kind: AnalysisPeriodKind;
+  start_date: string | null;
+  end_date: string | null;
+  days: number | null;
+  label: string;
+  confidence: number;
+  source: string;
+  evidence?: string[];
+};
+
+export type EconomicClass =
+  | "CASH_RELEASE"
+  | "MARGIN_OPPORTUNITY"
+  | "REVENUE_AT_RISK"
+  | "COST_EXPOSURE"
+  | "INVENTORY_VALUE"
+  | "OTHER"
+  | string;
+
+export type EconomicValueCategory = {
+  key: string;
+  economic_class: EconomicClass;
+  value: number;
+  unit: "EUR" | string;
+  period_days: number | null;
+  additive_group: string | null;
+  label: string;
+  description: string;
+  is_stock: boolean;
+  is_flow: boolean;
+  represents_cash: boolean;
+  represents_revenue: boolean;
+  represents_margin: boolean;
+  represents_exposure: boolean;
+  can_sum_with: string[];
+};
+
+export type EconomicValueSummary = {
+  display_total: number;
+  display_total_semantics: string;
+  is_additive: boolean;
+  unit: "EUR" | string;
+  categories: EconomicValueCategory[];
+  category_count: number;
+  disclaimer: string;
+  legacy_compatibility?: {
+    legacy_total_impact_is_heterogeneous: boolean;
+    legacy_fields_preserved: string[];
+  };
+};
+
+export type ProductRef = {
+  identity_key: string;
+  identity_type: "SKU" | "NORMALIZED_NAME" | string;
+  identity_confidence: number;
+  sku?: string | null;
+  name?: string | null;
+  warnings?: string[];
+};
+
+export type ProductEconomicProfile = {
+  product_ref: ProductRef;
+  category?: string | null;
+  supplier?: string | null;
+  metrics: {
+    stock_units: number;
+    units_sold: number;
+    revenue: number;
+    gross_margin_pct: number;
+    gross_profit_estimated: number;
+    stock_coverage_days: number;
+    stock_turnover_90d: number;
+    inventory_value: number;
+  };
+  economic_status: string;
+  decision_ids?: string[];
+};
+
 export type BusinessProfile = {
   company_name?: string;
   sector: "retail" | "ecommerce" | "distribution" | "manufacturing" | string;
@@ -128,6 +209,7 @@ export type ImpactBreakdown = {
   margin_improvement: number;
   sales_protection: number;
   total_impact: number;
+  is_additive?: boolean;
   explanation: string;
 };
 
@@ -154,7 +236,190 @@ export type BusinessStatus = {
   message: string;
 };
 
+export type AnalysisSnapshot = {
+  analysis_id: string;
+  analysis_created_at: string;
+  analysis_period: AnalysisPeriod;
+  business_profile_digest: Partial<BusinessProfile>;
+  summary_kpis: Record<string, number>;
+  economic_value_summary: EconomicValueSummary;
+  product_metrics: ProductEconomicProfile[];
+  product_count: number;
+  product_metrics_count: number;
+  product_metrics_truncated: boolean;
+  recommendation_digest: {
+    count: number;
+    by_category: Record<string, number>;
+    by_type: Record<string, number>;
+    top_recommendation_refs: Array<{
+      rank: number;
+      type?: string;
+      category?: string;
+      impact: number;
+      affected_products?: Array<string | null | undefined>;
+    }>;
+  };
+  data_quality: {
+    quality_score?: number;
+    quality_label?: string;
+    merge_quality_score?: number;
+    mapping_confidence: Record<string, number>;
+    mapped_fields: string[];
+    missing_required_fields: string[];
+  };
+  comparability_metadata: {
+    source_roles: Record<string, number>;
+    join_strategy?: string;
+    identity_warnings: number;
+    metric_coverage: Record<string, number>;
+    snapshot_product_limit: number;
+  };
+};
+
+export type ComparabilityStatus = "COMPARABLE" | "PARTIALLY_COMPARABLE" | "NOT_COMPARABLE" | string;
+
+export type ComparabilityResult = {
+  status: ComparabilityStatus;
+  score: number;
+  warnings: string[];
+  shared_products: number;
+  product_match_rate: number;
+  retained_product_rate: number;
+  catalog_delta_rate: number;
+  metric_coverage: number;
+  schema_overlap: number;
+  explanation: string;
+};
+
+export type Analysis = {
+  analysis_id: string;
+  analysis_created_at: string;
+  analysis_period: AnalysisPeriod;
+  business_profile?: BusinessProfile;
+  summary_kpis: Record<string, number>;
+  economic_value_summary: EconomicValueSummary;
+  analysis_snapshot: AnalysisSnapshot;
+};
+
+export type DecisionStatus =
+  | "PENDING"
+  | "DECIDED"
+  | "IN_PROGRESS"
+  | "MONITORING"
+  | "COMPLETED"
+  | "DISCARDED";
+
+export type Decision = {
+  id: string;
+  title: string;
+  decision_type: string;
+  category: string;
+  status: DecisionStatus;
+  priority: RecommendationPriority;
+  estimated_impact: number;
+  impact_category: EconomicClass;
+  confidence: number;
+  horizon_days: number | null;
+  created_at: string;
+  source_analysis_id: string;
+  recommendation_ids: string[];
+  affected_product_refs: ProductRef[];
+  detection_summary: string;
+  why_it_matters: string;
+  drivers: string[];
+  selected_scenario?: string | null;
+  economic_target?: number | null;
+  target_date?: string | null;
+  user_note?: string | null;
+};
+
+export type DecisionMetricBaseline = {
+  decision_id: string;
+  analysis_id: string;
+  metric_key: string;
+  baseline_value: number;
+  baseline_product_refs: ProductRef[];
+  created_at: string;
+  period: AnalysisPeriod;
+};
+
+export type DecisionTracking = {
+  decision_id: string;
+  baseline: DecisionMetricBaseline;
+  latest_analysis_id?: string;
+  latest_value?: number;
+  observed_metric_change?: number;
+  progress_pct?: number;
+  tracking_status: "NOT_STARTED" | "ON_TRACK" | "OFF_TRACK" | "INSUFFICIENT_DATA" | string;
+  comparability?: ComparabilityResult;
+};
+
+export type StockScenarioParameters = {
+  kind: "STOCK";
+  intensity: number;
+  target_stock_reduction_pct?: number;
+  affected_product_refs: ProductRef[];
+  target_coverage_days?: number;
+  max_discount_pct?: number;
+};
+
+export type MarginScenarioParameters = {
+  kind: "MARGIN";
+  price_adjustment_pct?: number;
+  affected_product_refs: ProductRef[];
+  target_margin_pct?: number;
+  estimated_unit_variation_pct?: number;
+};
+
+export type StockoutScenarioParameters = {
+  kind: "STOCKOUT";
+  minimum_stock_units?: number;
+  replenishment_units?: number;
+  lead_time_days?: number;
+  demand_window_days?: number;
+  affected_product_refs: ProductRef[];
+};
+
+export type ScenarioParameters = StockScenarioParameters | MarginScenarioParameters | StockoutScenarioParameters;
+
+export type Scenario = {
+  id: string;
+  label: string;
+  decision_id?: string;
+  parameters: ScenarioParameters;
+  results: Record<string, number>;
+  confidence: number;
+  assumptions: string[];
+};
+
+export type EconomicDriver = {
+  id: string;
+  parent_id?: string | null;
+  level: "BUSINESS" | "ECONOMIC_CATEGORY" | "SUBDRIVER" | "PRODUCT_CATEGORY" | "PRODUCT" | "DECISION" | string;
+  label: string;
+  economic_class?: EconomicClass;
+  value?: number;
+  unit?: string;
+  aggregation_mode: "ADDITIVE" | "NON_ADDITIVE" | "REFERENCE";
+  children?: EconomicDriver[];
+  product_refs?: ProductRef[];
+  decision_ids?: string[];
+};
+
+export type AIContext = {
+  active_view: string;
+  analysis_id?: string;
+  active_product?: ProductRef;
+  active_decision?: Pick<Decision, "id" | "title" | "status" | "impact_category">;
+  active_scenarios?: Scenario[];
+  economic_driver?: Pick<EconomicDriver, "id" | "label" | "economic_class">;
+  available_metrics: string[];
+};
+
 export type AnalyzeResponse = {
+  analysis_id: string;
+  analysis_created_at: string;
+  analysis_period: AnalysisPeriod;
   file_name: string;
   rows: number;
   columns: number;
@@ -176,6 +441,8 @@ export type AnalyzeResponse = {
     top_decision_impact?: number;
   };
   impact_breakdown?: ImpactBreakdown;
+  economic_value_summary?: EconomicValueSummary;
+  analysis_snapshot?: AnalysisSnapshot;
   trust_layer?: TrustLayer;
   scenario_simulation?: ScenarioSimulation;
   recommendations: Recommendation[];

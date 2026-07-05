@@ -29,6 +29,7 @@ type FileState = Partial<Record<UploadRole, File>>;
 
 type HistoryItem = {
   id: string;
+  analysisId?: string;
   createdAt: string;
   fileNames: string[];
   potential: number;
@@ -228,7 +229,7 @@ function exportRowsToCsv(
 
 function exportHistoryToCsv(history: HistoryItem[]) {
   if (typeof window === "undefined") return;
-  const header = ["Fecha", "Archivos", "Beneficio potencial", "Oportunidades", "Score", "Calidad"].map(csvSafe).join(",");
+  const header = ["Fecha", "Archivos", "Valor economico", "Oportunidades", "Score", "Calidad"].map(csvSafe).join(",");
   const body = history.map((item) => [
     item.createdAt,
     item.fileNames.join(" + "),
@@ -292,7 +293,10 @@ function productIcon(index: number) {
 function getSummary(result: AnalyzeResponse | null) {
   const summary = result?.summary_kpis ?? {};
   const recs = result?.recommendations?.length ? result.recommendations : FALLBACK_RECOMMENDATIONS;
-  const totalImpact = asNumber(summary.potential_recoverable_benefit) || recs.reduce((sum, rec) => sum + asNumber(rec.economic_impact), 0);
+  const totalImpact =
+    asNumber(result?.economic_value_summary?.display_total) ||
+    asNumber(summary.potential_recoverable_benefit) ||
+    recs.reduce((sum, rec) => sum + asNumber(rec.economic_impact), 0);
   return {
     potential: result ? totalImpact : 32470,
     opportunities: result ? recs.length : 8,
@@ -464,10 +468,11 @@ export default function Home() {
       setIsWizardOpen(false);
       setActiveTab("dashboard");
       const item: HistoryItem = {
-        id: `analysis-${Date.now()}`,
-        createdAt: new Date().toISOString(),
+        id: response.analysis_id,
+        analysisId: response.analysis_id,
+        createdAt: response.analysis_created_at,
         fileNames: Object.values(cleanFiles).filter(Boolean).map((file) => file!.name),
-        potential: asNumber(response.summary_kpis?.potential_recoverable_benefit),
+        potential: asNumber(response.economic_value_summary?.display_total, asNumber(response.summary_kpis?.potential_recoverable_benefit)),
         opportunities: response.recommendations?.length || 0,
         score: asNumber(response.summary_kpis?.business_score_current, 82),
         scoreAfter: asNumber(response.summary_kpis?.business_score_after_actions, 91),
@@ -617,9 +622,9 @@ function DashboardView({ summary, result, recommendations, scenarios, selectedSc
         <Card className="overflow-hidden p-6">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <p className="text-sm font-semibold text-slate-300">Beneficio potencial estimado</p>
+              <p className="text-sm font-semibold text-slate-300">Valor económico identificado</p>
               <h1 className="mt-4 text-5xl font-black tracking-tight text-white sm:text-6xl">{formatCurrency(summary.potential)}</h1>
-              <p className="mt-2 text-sm text-slate-400">que podrías recuperar este mes</p>
+              <p className="mt-2 text-sm text-slate-400">caja, margen y ventas expuestas no aditivas</p>
               <div className="mt-5 inline-flex items-center gap-2 rounded-xl border border-emerald-400/20 bg-emerald-400/10 px-3 py-2 text-sm font-bold text-emerald-300">↗ 18,6% vs. mes anterior</div>
             </div>
             <div className="hidden w-[45%] items-end justify-end md:flex"><Sparkline /></div>
@@ -666,7 +671,14 @@ function DashboardView({ summary, result, recommendations, scenarios, selectedSc
 
 
 function PotentialBreakdown({ result, summary }: { result: AnalyzeResponse | null; summary: ReturnType<typeof getSummary> }) {
-  const components = result?.trust_layer?.components?.length
+  const components = result?.economic_value_summary?.categories?.length
+    ? result.economic_value_summary.categories.map((category) => ({
+        key: category.key,
+        label: category.label,
+        amount: category.value,
+        description: category.description,
+      }))
+    : result?.trust_layer?.components?.length
     ? result.trust_layer.components
     : [
         { key: "cash", label: "Caja liberable", amount: summary.capital, description: "Stock de baja rotación que podría reducirse con acciones comerciales." },
@@ -676,7 +688,7 @@ function PotentialBreakdown({ result, summary }: { result: AnalyzeResponse | nul
   return (
     <Card className="p-5">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <div><h2 className="text-lg font-black text-white">Cómo se explica el beneficio potencial</h2><p className="mt-1 text-sm text-slate-500">Desglose para separar caja liberable, capital inmovilizado y mejora de margen. Son estimaciones orientativas.</p></div>
+        <div><h2 className="text-lg font-black text-white">Cómo se explica el valor económico</h2><p className="mt-1 text-sm text-slate-500">Desglose para separar caja liberable, margen y ventas expuestas. Son magnitudes orientativas y no aditivas.</p></div>
         <Badge className="border-emerald-400/20 bg-emerald-500/10 text-emerald-300">{result?.trust_layer?.confidence_level || 86}% confianza</Badge>
       </div>
       <div className="mt-5 grid gap-3 md:grid-cols-3">
@@ -1128,7 +1140,7 @@ function ExecutiveReport({ result, recommendations, summary, historyItem }: { re
         </section>
 
         <div className="report-metrics-grid grid gap-5 md:grid-cols-4">
-          <ReportMetric label="Beneficio potencial" value={formatCurrency(summary.potential)} tone="green" />
+          <ReportMetric label="Valor económico" value={formatCurrency(summary.potential)} tone="green" />
           <ReportMetric label="Capital inmovilizado" value={formatCurrency(summary.capital)} tone="red" />
           <ReportMetric label="Business Score" value={`${summary.score}/100`} tone="blue" />
           <ReportMetric label="Acciones recomendadas" value={summary.actions} tone="amber" />
@@ -1145,7 +1157,7 @@ function ExecutiveReport({ result, recommendations, summary, historyItem }: { re
         <section className="report-card report-keep rounded-[28px] border border-slate-800 bg-white p-7 text-slate-950">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <h2 className="text-2xl font-black">Cómo se calcula el beneficio potencial</h2>
+              <h2 className="text-2xl font-black">Cómo se calcula el valor económico</h2>
               <p className="mt-2 text-sm text-slate-600">Desglose orientativo para diferenciar caja, margen y ventas protegidas. No es una promesa de resultado.</p>
             </div>
             <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">{result?.trust_layer?.confidence_level || 86}% confianza</Badge>
@@ -1223,7 +1235,7 @@ function ReportMetric({ label, value, tone }: { label: string; value: string | n
 
 function ActionPeriod({ title, items, light = false }: { title: string; items: string[]; light?: boolean }) { return <div className={cn("rounded-2xl border p-4", light ? "border-slate-200 bg-slate-50" : "border-slate-800 bg-black/20")}><p className={cn("font-black", light ? "text-slate-950" : "text-white")}>{title}</p><ul className={cn("mt-3 space-y-2 text-sm", light ? "text-slate-700" : "text-slate-400")}>{items.map((item) => <li key={item}>• {item}</li>)}</ul></div>; }
 
-function HistoryView({ history, setResult, setActiveTab }: { history: HistoryItem[]; setResult: (value: AnalyzeResponse | null) => void; setActiveTab: (tab: TabId) => void }) { return <div className="space-y-5"><Card><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h1 className="text-2xl font-black text-white">Historial de análisis</h1><p className="text-sm text-slate-500">Análisis guardados localmente durante la demo.</p></div><button onClick={() => exportHistoryToCsv(history)} className="rounded-xl border border-slate-700 px-3 py-2 text-xs font-bold text-slate-300 hover:bg-white/5">Exportar historial CSV</button></div></Card><Card><div className="overflow-x-auto"><table className="w-full min-w-[820px] text-left text-sm"><thead><tr className="border-b border-slate-800 text-xs uppercase text-slate-500"><th className="pb-3">Fecha</th><th className="pb-3">Archivos</th><th className="pb-3">Beneficio</th><th className="pb-3">Oportunidades</th><th className="pb-3">Score</th><th className="pb-3">Calidad</th><th className="pb-3">Acción</th></tr></thead><tbody className="divide-y divide-slate-800">{history.map((item) => <tr key={item.id}><td className="py-4 text-slate-300">{dateLabel(item.createdAt)}</td><td className="py-4 text-slate-400">{item.fileNames.join(" + ")}</td><td className="py-4 font-black text-emerald-400">{formatCurrency(item.potential)}</td><td className="py-4 text-slate-300">{item.opportunities}</td><td className="py-4 text-slate-300">{item.score}/100</td><td className="py-4 text-slate-300">{item.mergeQuality || "—"}%</td><td className="py-4"><button onClick={() => { if (item.reportSnapshot) setResult(item.reportSnapshot); setActiveTab("reports"); }} className="rounded-xl border border-slate-700 px-3 py-2 text-xs font-bold text-white">Ver informe</button></td></tr>)}</tbody></table></div></Card></div>; }
+function HistoryView({ history, setResult, setActiveTab }: { history: HistoryItem[]; setResult: (value: AnalyzeResponse | null) => void; setActiveTab: (tab: TabId) => void }) { return <div className="space-y-5"><Card><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h1 className="text-2xl font-black text-white">Historial de análisis</h1><p className="text-sm text-slate-500">Análisis guardados localmente durante la demo.</p></div><button onClick={() => exportHistoryToCsv(history)} className="rounded-xl border border-slate-700 px-3 py-2 text-xs font-bold text-slate-300 hover:bg-white/5">Exportar historial CSV</button></div></Card><Card><div className="overflow-x-auto"><table className="w-full min-w-[820px] text-left text-sm"><thead><tr className="border-b border-slate-800 text-xs uppercase text-slate-500"><th className="pb-3">Fecha</th><th className="pb-3">Archivos</th><th className="pb-3">Valor económico</th><th className="pb-3">Oportunidades</th><th className="pb-3">Score</th><th className="pb-3">Calidad</th><th className="pb-3">Acción</th></tr></thead><tbody className="divide-y divide-slate-800">{history.map((item) => <tr key={item.id}><td className="py-4 text-slate-300">{dateLabel(item.createdAt)}</td><td className="py-4 text-slate-400">{item.fileNames.join(" + ")}</td><td className="py-4 font-black text-emerald-400">{formatCurrency(item.potential)}</td><td className="py-4 text-slate-300">{item.opportunities}</td><td className="py-4 text-slate-300">{item.score}/100</td><td className="py-4 text-slate-300">{item.mergeQuality || "—"}%</td><td className="py-4"><button onClick={() => { if (item.reportSnapshot) setResult(item.reportSnapshot); setActiveTab("reports"); }} className="rounded-xl border border-slate-700 px-3 py-2 text-xs font-bold text-white">Ver informe</button></td></tr>)}</tbody></table></div></Card></div>; }
 
 function SettingsView({ businessProfile, setBusinessProfile }: { businessProfile: BusinessProfile; setBusinessProfile: (profile: BusinessProfile) => void }) { return <div className="space-y-5"><Card><h1 className="text-2xl font-black text-white">Configuración</h1><p className="text-sm text-slate-500">Perfil de negocio usado por defecto en los análisis.</p></Card><Card><BusinessProfileForm businessProfile={businessProfile} setBusinessProfile={setBusinessProfile} /></Card></div>; }
 
