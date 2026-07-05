@@ -514,7 +514,17 @@ export default function Home() {
           </header>
 
           {activeTab === "dashboard" && <DashboardView summary={summary} result={result} recommendations={recommendations} scenarios={scenarios} selectedScenario={selectedScenario} setSelectedScenario={setSelectedScenario} setSelectedRecommendation={setSelectedRecommendation} setActiveTab={setActiveTab} history={history} currentFiles={currentFiles} products={filteredProducts} />}
-          {activeTab === "analysis" && <AnalysisView result={result} recommendations={recommendations} scenarios={scenarios} setIsWizardOpen={setIsWizardOpen} setSelectedRecommendation={setSelectedRecommendation} />}
+          {activeTab === "analysis" && (
+            <AnalysisView
+              result={result}
+              recommendations={recommendations}
+              scenarios={scenarios}
+              selectedScenario={selectedScenario}
+              setSelectedScenario={setSelectedScenario}
+              setIsWizardOpen={setIsWizardOpen}
+              setSelectedRecommendation={setSelectedRecommendation}
+            />
+          )}
           {activeTab === "opportunities" && <OpportunitiesView recommendations={recommendations} setSelectedRecommendation={setSelectedRecommendation} />}
           {activeTab === "files" && <FilesView currentFiles={currentFiles} history={history} setIsWizardOpen={setIsWizardOpen} />}
           {activeTab === "products" && <ProductCatalogTable products={filteredProducts} result={result} />}
@@ -947,8 +957,62 @@ function ConfirmStep({ files, inspection, businessProfile }: { files: FileState;
   return <div className="space-y-4"><div className="rounded-3xl border border-slate-800 bg-black/25 p-5"><h3 className="text-lg font-black text-white">Resumen antes de generar</h3><div className="mt-4 grid gap-3 md:grid-cols-2">{used.map(([role, file]) => <div key={role} className="rounded-2xl bg-slate-950/60 p-4"><p className="font-bold text-white">{fileLabel(role)}</p><p className="text-sm text-slate-500">{file.name}</p></div>)}</div></div><div className="rounded-3xl border border-slate-800 bg-black/25 p-5"><p className="font-bold text-white">Perfil aplicado</p><p className="mt-2 text-sm text-slate-400">Sector: {businessProfile.sector} · Objetivo: {businessProfile.analysis_goal} · Margen objetivo: {businessProfile.target_margin_pct}%</p><p className="mt-2 text-sm text-slate-500">Calidad de unión: {inspection?.merge_summary?.merge_quality_score || 0}%</p></div></div>;
 }
 
-function AnalysisView({ result, recommendations, scenarios, setIsWizardOpen, setSelectedRecommendation }: { result: AnalyzeResponse | null; recommendations: Recommendation[]; scenarios?: ScenarioSimulation; setIsWizardOpen: (value: boolean) => void; setSelectedRecommendation: (rec: Recommendation) => void }) {
-  return <div className="space-y-5"><Card><div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"><div><h1 className="text-2xl font-black text-white">Análisis</h1><p className="text-sm text-slate-500">Revisión técnica y económica del último análisis generado.</p></div><button onClick={() => setIsWizardOpen(true)} className="rounded-xl bg-blue-600 px-4 py-3 text-sm font-black text-white">Nuevo análisis</button></div></Card><DecisionFeed recommendations={recommendations} setSelectedRecommendation={setSelectedRecommendation} /><ScenarioSimulator scenarios={scenarios} selectedScenario="recommended" setSelectedScenario={() => undefined} />{!result ? <EmptyState title="Sin análisis real todavía" text="Estás viendo datos demo. Sube archivos para activar el motor de decisión con tus datos." /> : null}</div>;
+function AnalysisView({
+  result,
+  recommendations,
+  scenarios,
+  selectedScenario,
+  setSelectedScenario,
+  setIsWizardOpen,
+  setSelectedRecommendation,
+}: {
+  result: AnalyzeResponse | null;
+  recommendations: Recommendation[];
+  scenarios?: ScenarioSimulation;
+  selectedScenario: string;
+  setSelectedScenario: (id: string) => void;
+  setIsWizardOpen: (value: boolean) => void;
+  setSelectedRecommendation: (rec: Recommendation) => void;
+}) {
+  return (
+    <div className="space-y-5">
+      <Card>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h1 className="text-2xl font-black text-white">Análisis</h1>
+            <p className="text-sm text-slate-500">
+              Revisión técnica y económica del último análisis generado.
+            </p>
+          </div>
+
+          <button
+            onClick={() => setIsWizardOpen(true)}
+            className="rounded-xl bg-blue-600 px-4 py-3 text-sm font-black text-white"
+          >
+            Nuevo análisis
+          </button>
+        </div>
+      </Card>
+
+      <DecisionFeed
+        recommendations={recommendations}
+        setSelectedRecommendation={setSelectedRecommendation}
+      />
+
+      <ScenarioSimulator
+        scenarios={scenarios}
+        selectedScenario={selectedScenario}
+        setSelectedScenario={setSelectedScenario}
+      />
+
+      {!result ? (
+        <EmptyState
+          title="Sin análisis real todavía"
+          text="Estás viendo datos demo. Sube archivos para activar el motor de decisión con tus datos."
+        />
+      ) : null}
+    </div>
+  );
 }
 
 function OpportunitiesView({ recommendations, setSelectedRecommendation }: { recommendations: Recommendation[]; setSelectedRecommendation: (rec: Recommendation) => void }) { return <div className="space-y-5"><Card><h1 className="text-2xl font-black text-white">Oportunidades</h1><p className="mt-1 text-sm text-slate-500">Todas las decisiones económicas detectadas, ordenadas por impacto.</p></Card><DecisionFeed recommendations={recommendations} setSelectedRecommendation={setSelectedRecommendation} /></div>; }
