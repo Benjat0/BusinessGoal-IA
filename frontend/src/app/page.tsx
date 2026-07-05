@@ -362,7 +362,30 @@ export default function Home() {
   useEffect(() => {
     try {
       const stored = localStorage.getItem("businessgoal-history-final");
-      if (stored) setHistory([...JSON.parse(stored), ...DEMO_HISTORY_ITEMS].slice(0, 12));
+
+      if (stored) {
+        const storedHistory = JSON.parse(stored) as HistoryItem[];
+
+        setHistory(
+          [...storedHistory, ...DEMO_HISTORY_ITEMS].slice(0, 12),
+        );
+
+        const latestAnalysis = storedHistory.find(
+          (item) => item.reportSnapshot,
+        );
+
+        if (latestAnalysis?.reportSnapshot) {
+          setResult(latestAnalysis.reportSnapshot);
+
+          const recommendedScenario =
+            latestAnalysis.reportSnapshot.scenario_simulation
+              ?.recommended_scenario;
+
+          if (recommendedScenario) {
+            setSelectedScenario(recommendedScenario);
+          }
+        }
+      }
     } catch {
       // ignore localStorage issues
     }
