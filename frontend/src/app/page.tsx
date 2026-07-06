@@ -1,7 +1,23 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { AppShell, type TabId } from "@/components/layout";
+import {
+  Badge,
+  Button,
+  Card,
+  DrawerShell,
+  EmptyState,
+  Metric,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from "@/components/ui";
 import { analyzeBatchFiles, inspectBatchFiles } from "@/lib/api";
+import { cn } from "@/lib/ui";
 import type {
   AnalyzeResponse,
   BusinessProfile,
@@ -10,18 +26,6 @@ import type {
   ScenarioSimulation,
   UploadRole,
 } from "@/lib/types";
-
-type TabId =
-  | "dashboard"
-  | "analysis"
-  | "opportunities"
-  | "files"
-  | "products"
-  | "inventory"
-  | "sales"
-  | "reports"
-  | "history"
-  | "settings";
 
 type WizardStep = 1 | 2 | 3 | 4 | 5;
 type UploadMode = "combined" | "split";
@@ -44,19 +48,6 @@ type HistoryItem = {
 type Toast = { type: "success" | "error" | "info"; message: string } | null;
 
 type ProductRow = Record<string, string | number | undefined>;
-
-const NAV: { id: TabId; label: string; icon: string }[] = [
-  { id: "dashboard", label: "Dashboard", icon: "▦" },
-  { id: "analysis", label: "Análisis", icon: "⌁" },
-  { id: "opportunities", label: "Oportunidades", icon: "◎" },
-  { id: "files", label: "Archivos", icon: "□" },
-  { id: "products", label: "Productos", icon: "⬡" },
-  { id: "inventory", label: "Inventario", icon: "▤" },
-  { id: "sales", label: "Ventas", icon: "☿" },
-  { id: "reports", label: "Informes", icon: "▧" },
-  { id: "history", label: "Historial", icon: "◷" },
-  { id: "settings", label: "Configuración", icon: "⚙" },
-];
 
 const DEFAULT_BUSINESS_PROFILE: BusinessProfile = {
   company_name: "Empresa demo",
@@ -229,7 +220,7 @@ function exportRowsToCsv(
 
 function exportHistoryToCsv(history: HistoryItem[]) {
   if (typeof window === "undefined") return;
-  const header = ["Fecha", "Archivos", "Valor economico", "Oportunidades", "Score", "Calidad"].map(csvSafe).join(",");
+  const header = ["Fecha", "Archivos", "Valor economico", "Decisiones", "Score", "Calidad"].map(csvSafe).join(",");
   const body = history.map((item) => [
     item.createdAt,
     item.fileNames.join(" + "),
@@ -265,9 +256,9 @@ function priorityLabel(priority: string) {
 }
 
 function priorityClass(priority: string) {
-  if (priority === "high") return "border-red-400/30 bg-red-500/15 text-red-200";
-  if (priority === "medium") return "border-amber-400/30 bg-amber-500/15 text-amber-200";
-  return "border-cyan-400/30 bg-cyan-500/15 text-cyan-200";
+  if (priority === "high") return "border-[rgba(244,113,127,0.38)] bg-[rgba(244,113,127,0.12)] text-[var(--risk)]";
+  if (priority === "medium") return "border-[rgba(239,185,76,0.38)] bg-[rgba(239,185,76,0.12)] text-[var(--signal)]";
+  return "border-[rgba(91,115,242,0.38)] bg-[rgba(91,115,242,0.12)] text-[var(--primary-soft)]";
 }
 
 function categoryLabel(category?: string) {
@@ -286,15 +277,15 @@ function fileLabel(role: UploadRole | string) {
 }
 
 function productIcon(index: number) {
-  const icons = ["🎧", "🪑", "⌨️", "🖥️", "🔊", "📦", "🛠️", "💡"];
-  return icons[index % icons.length];
+  return String(index + 1).padStart(2, "0");
 }
 
 function getSummary(result: AnalyzeResponse | null) {
   const summary = result?.summary_kpis ?? {};
   const recs = result?.recommendations?.length ? result.recommendations : FALLBACK_RECOMMENDATIONS;
+  const canUseDisplayTotal = result?.economic_value_summary?.display_total_recommended_for_hero !== false;
   const totalImpact =
-    asNumber(result?.economic_value_summary?.display_total) ||
+    (canUseDisplayTotal ? asNumber(result?.economic_value_summary?.display_total) : 0) ||
     asNumber(summary.potential_recoverable_benefit) ||
     recs.reduce((sum, rec) => sum + asNumber(rec.economic_impact), 0);
   return {
@@ -313,52 +304,29 @@ function getSummary(result: AnalyzeResponse | null) {
   };
 }
 
-function cn(...classes: Array<string | false | null | undefined>) {
-  return classes.filter(Boolean).join(" ");
-}
-
 function Sparkline() {
   return (
     <svg viewBox="0 0 260 120" className="h-[115px] w-full max-w-[280px] overflow-visible">
       <defs>
         <linearGradient id="lineGlow" x1="0" x2="1" y1="0" y2="0">
-          <stop offset="0%" stopColor="#2563EB" />
-          <stop offset="45%" stopColor="#7C3AED" />
-          <stop offset="100%" stopColor="#38BDF8" />
+          <stop offset="0%" stopColor="#5B73F2" />
+          <stop offset="58%" stopColor="#2AC7B2" />
+          <stop offset="100%" stopColor="#A78BFA" />
         </linearGradient>
         <linearGradient id="areaGlow" x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0%" stopColor="#3B82F6" stopOpacity="0.35" />
-          <stop offset="100%" stopColor="#3B82F6" stopOpacity="0" />
+          <stop offset="0%" stopColor="#5B73F2" stopOpacity="0.18" />
+          <stop offset="100%" stopColor="#5B73F2" stopOpacity="0" />
         </linearGradient>
-        <filter id="glow"><feGaussianBlur stdDeviation="4" result="coloredBlur" /><feMerge><feMergeNode in="coloredBlur" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
       </defs>
       <path d="M8 105 C38 92,43 50,68 62 C90 73,92 35,114 44 C136 54,141 15,166 26 C190 37,192 54,214 33 C230 18,242 7,252 0 L252 120 L8 120 Z" fill="url(#areaGlow)" />
-      <path d="M8 105 C38 92,43 50,68 62 C90 73,92 35,114 44 C136 54,141 15,166 26 C190 37,192 54,214 33 C230 18,242 7,252 0" fill="none" stroke="url(#lineGlow)" strokeWidth="4" strokeLinecap="round" filter="url(#glow)" />
-      <circle cx="252" cy="0" r="6" fill="#60A5FA" filter="url(#glow)" />
+      <path d="M8 105 C38 92,43 50,68 62 C90 73,92 35,114 44 C136 54,141 15,166 26 C190 37,192 54,214 33 C230 18,242 7,252 0" fill="none" stroke="url(#lineGlow)" strokeWidth="3" strokeLinecap="round" />
+      <circle cx="252" cy="0" r="5" fill="#5B73F2" />
     </svg>
   );
 }
 
-function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
-  return <section className={cn("neon-card rounded-[26px] p-5", className)}>{children}</section>;
-}
-
-function Badge({ children, className = "" }: { children: React.ReactNode; className?: string }) {
-  return <span className={cn("inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-bold", className)}>{children}</span>;
-}
-
-function EmptyState({ title, text, action }: { title: string; text: string; action?: React.ReactNode }) {
-  return (
-    <div className="rounded-2xl border border-dashed border-slate-700/80 bg-slate-950/35 p-8 text-center">
-      <p className="text-base font-bold text-white">{title}</p>
-      <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-slate-400">{text}</p>
-      {action ? <div className="mt-5">{action}</div> : null}
-    </div>
-  );
-}
-
 export default function Home() {
-  const [activeTab, setActiveTab] = useState<TabId>("dashboard");
+  const [activeTab, setActiveTab] = useState<TabId>("home");
   const [isWizardOpen, setIsWizardOpen] = useState(false);
   const [wizardStep, setWizardStep] = useState<WizardStep>(1);
   const [uploadMode, setUploadMode] = useState<UploadMode>("split");
@@ -466,7 +434,7 @@ export default function Home() {
       const response = await analyzeBatchFiles(cleanFiles, undefined, businessProfile);
       setResult(response);
       setIsWizardOpen(false);
-      setActiveTab("dashboard");
+      setActiveTab("home");
       const item: HistoryItem = {
         id: response.analysis_id,
         analysisId: response.analysis_id,
@@ -494,67 +462,22 @@ export default function Home() {
 
   const uploadReady = uploadMode === "combined" ? Boolean(files.combined) : Boolean(files.inventory || files.sales);
   const analysisContext = result
-    ? `${result.analysis_mode === "multi_file" ? "Inventario + ventas" : "Archivo combinado"} · ${result.business_profile?.sector_label || "Retail"} · ${result.business_profile?.analysis_goal_label || "Equilibrado"} · Generado ahora`
+    ? `${result.analysis_mode === "multi_file" ? "Inventario + ventas" : "Archivo combinado"} · ${result.business_profile?.sector_label || "Retail"} · ${result.business_profile?.analysis_goal_label || "Equilibrado"}`
     : "Demo activa · Financial Decision Intelligence · Datos de ejemplo";
 
   return (
-    <div className="relative min-h-screen overflow-x-hidden text-slate-100">
-      <aside className="app-sidebar fixed inset-y-0 left-0 z-30 hidden w-[260px] flex-col border-r border-slate-800/80 bg-black/45 p-5 backdrop-blur-xl xl:flex">
-        <div className="mb-8 flex items-center gap-3">
-          <div className="grid h-10 w-10 place-items-center rounded-2xl bg-gradient-to-br from-blue-500 to-violet-600 shadow-lg shadow-blue-500/20">◆</div>
-          <div>
-            <p className="text-lg font-black tracking-tight text-white">BusinessGoal</p>
-            <p className="text-xs text-slate-500">Decision Intelligence</p>
-          </div>
-        </div>
-        <nav className="min-h-0 flex-1 space-y-1.5 overflow-y-auto pr-1 pb-4">
-          {NAV.map((item) => (
-            <button
-              key={item.id}
-              onClick={() => setActiveTab(item.id)}
-              className={cn(
-                "flex h-12 w-full items-center gap-3 rounded-2xl px-4 text-left text-sm font-semibold transition",
-                activeTab === item.id
-                  ? "border border-blue-400/40 bg-blue-600/80 text-white shadow-lg shadow-blue-500/20"
-                  : "text-slate-300 hover:bg-white/[0.06] hover:text-white",
-              )}
-            >
-              <span className="w-6 text-lg">{item.icon}</span>
-              {item.label}
-            </button>
-          ))}
-        </nav>
-        <div className="mt-4 shrink-0 rounded-3xl border border-slate-800 bg-slate-950/70 p-4">
-          <p className="text-sm font-bold text-white">¿Necesitas ayuda?</p>
-          <p className="mt-2 text-xs leading-5 text-slate-400">Guía rápida para configurar tus datos.</p>
-          <button onClick={() => setActiveTab("settings")} className="mt-4 h-10 w-full rounded-xl border border-slate-700 text-sm font-bold text-white hover:bg-white/5">Ver configuración</button>
-        </div>
-      </aside>
-
-      <main className="relative z-10 min-h-screen xl:pl-[260px]">
-        <div className="mx-auto max-w-[1500px] px-4 py-5 sm:px-6 lg:px-8">
-          <header className="app-header mb-5 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <p className="text-2xl font-black tracking-tight text-white sm:text-3xl">Panel ejecutivo</p>
-              <p className="mt-1 text-sm text-slate-400">Hoy hemos detectado {summary.opportunities} oportunidades de mejora.</p>
-              <div className="mt-3 inline-flex max-w-full items-center gap-2 rounded-full border border-slate-800 bg-slate-950/60 px-3 py-1.5 text-xs text-slate-400">
-                <span className="h-2 w-2 rounded-full bg-emerald-400" />
-                <span className="truncate">Análisis actual: {analysisContext}</span>
-              </div>
-            </div>
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-              <label className="flex h-11 min-w-[260px] items-center gap-3 rounded-2xl border border-slate-800 bg-black/30 px-4 text-sm text-slate-400">
-                <span>⌕</span>
-                <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar producto..." className="w-full bg-transparent outline-none placeholder:text-slate-600" />
-                <span className="text-xs">⌘K</span>
-              </label>
-              <button onClick={() => { resetWizard(); setIsWizardOpen(true); }} className="h-11 rounded-2xl bg-blue-600 px-5 text-sm font-black text-white shadow-lg shadow-blue-600/25 transition hover:bg-blue-500">+ Subir nuevo análisis</button>
-              <button className="hidden h-11 w-11 rounded-2xl border border-slate-800 bg-black/25 text-lg text-white sm:block">♢</button>
-            </div>
-          </header>
-
-          {activeTab === "dashboard" && <DashboardView summary={summary} result={result} recommendations={recommendations} scenarios={scenarios} selectedScenario={selectedScenario} setSelectedScenario={setSelectedScenario} setSelectedRecommendation={setSelectedRecommendation} setActiveTab={setActiveTab} history={history} currentFiles={currentFiles} products={filteredProducts} />}
-          {activeTab === "analysis" && (
+    <>
+      <AppShell
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        onOpenWizard={() => { resetWizard(); setIsWizardOpen(true); }}
+        analysisCreatedAt={result?.analysis_created_at}
+        analysisContext={analysisContext}
+        query={query}
+        onQueryChange={setQuery}
+      >
+        {activeTab === "home" && <DashboardView summary={summary} result={result} recommendations={recommendations} scenarios={scenarios} selectedScenario={selectedScenario} setSelectedScenario={setSelectedScenario} setSelectedRecommendation={setSelectedRecommendation} setActiveTab={setActiveTab} history={history} currentFiles={currentFiles} products={filteredProducts} />}
+        {activeTab === "analysis" && (
             <AnalysisView
               result={result}
               recommendations={recommendations}
@@ -565,16 +488,17 @@ export default function Home() {
               setSelectedRecommendation={setSelectedRecommendation}
             />
           )}
-          {activeTab === "opportunities" && <OpportunitiesView recommendations={recommendations} setSelectedRecommendation={setSelectedRecommendation} />}
-          {activeTab === "files" && <FilesView currentFiles={currentFiles} history={history} setIsWizardOpen={setIsWizardOpen} />}
-          {activeTab === "products" && <ProductCatalogTable products={filteredProducts} result={result} />}
-          {activeTab === "inventory" && <InventorySalesView mode="inventory" result={result} products={filteredProducts} />}
-          {activeTab === "sales" && <InventorySalesView mode="sales" result={result} products={filteredProducts} />}
-          {activeTab === "reports" && <ExecutiveReport result={result} recommendations={recommendations} summary={summary} historyItem={activeHistory} />}
-          {activeTab === "history" && <HistoryView history={history} setResult={setResult} setActiveTab={setActiveTab} />}
-          {activeTab === "settings" && <SettingsView businessProfile={businessProfile} setBusinessProfile={setBusinessProfile} />}
-        </div>
-      </main>
+        {activeTab === "decisions" && <DecisionsView recommendations={recommendations} setSelectedRecommendation={setSelectedRecommendation} />}
+        {activeTab === "scenarios" && <ScenariosView scenarios={scenarios} selectedScenario={selectedScenario} setSelectedScenario={setSelectedScenario} />}
+        {activeTab === "data" && <DataView currentFiles={currentFiles} history={history} setIsWizardOpen={setIsWizardOpen} />}
+        {activeTab === "products" && <ProductCatalogTable products={filteredProducts} result={result} />}
+        {activeTab === "inventory" && <InventorySalesView mode="inventory" result={result} products={filteredProducts} />}
+        {activeTab === "sales" && <InventorySalesView mode="sales" result={result} products={filteredProducts} />}
+        {activeTab === "reports" && <ExecutiveReport result={result} recommendations={recommendations} summary={summary} historyItem={activeHistory} />}
+        {activeTab === "history" && <HistoryView history={history} setResult={setResult} setActiveTab={setActiveTab} />}
+        {activeTab === "ai" && <AIContextView result={result} recommendations={recommendations} />}
+        {activeTab === "settings" && <SettingsView businessProfile={businessProfile} setBusinessProfile={setBusinessProfile} />}
+      </AppShell>
 
       {isWizardOpen && (
         <GuidedWizard
@@ -598,8 +522,8 @@ export default function Home() {
       )}
 
       {selectedRecommendation && <RecommendationDrawer recommendation={selectedRecommendation} onClose={() => setSelectedRecommendation(null)} />}
-      {toast && <div className={cn("fixed bottom-5 right-5 z-50 max-w-sm rounded-2xl border px-4 py-3 text-sm font-bold shadow-2xl", toast.type === "error" ? "border-red-500/40 bg-red-950/90 text-red-100" : toast.type === "success" ? "border-emerald-500/40 bg-emerald-950/90 text-emerald-100" : "border-blue-500/40 bg-blue-950/90 text-blue-100")}>{toast.message}</div>}
-    </div>
+      {toast && <div className={cn("fixed bottom-5 right-5 z-50 max-w-sm rounded-lg border px-4 py-3 text-sm font-semibold shadow-2xl", toast.type === "error" ? "border-[rgba(244,113,127,0.45)] bg-[rgba(48,18,24,0.96)] text-[var(--risk)]" : toast.type === "success" ? "border-[rgba(42,199,178,0.38)] bg-[rgba(13,44,41,0.96)] text-[var(--value)]" : "border-[rgba(91,115,242,0.4)] bg-[rgba(20,26,58,0.96)] text-[var(--primary-soft)]")}>{toast.message}</div>}
+    </>
   );
 }
 
@@ -619,35 +543,35 @@ function DashboardView({ summary, result, recommendations, scenarios, selectedSc
   return (
     <div className="space-y-5">
       <div className="grid gap-5 lg:grid-cols-[1.25fr_.75fr_.75fr]">
-        <Card className="overflow-hidden p-6">
+        <Card variant="elevated" className="overflow-hidden p-6">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <p className="text-sm font-semibold text-slate-300">{result?.economic_value_summary ? "Áreas económicas identificadas" : "Valor económico identificado"}</p>
-              <h1 className="mt-4 text-5xl font-black tracking-tight text-white sm:text-6xl">{result?.economic_value_summary ? `${result.economic_value_summary.category_count} áreas` : formatCurrency(summary.potential)}</h1>
-              <p className="mt-2 text-sm text-slate-400">{result?.economic_value_summary ? result.economic_value_summary.categories.map((category) => category.label).join(" · ") : "Estimación orientativa sobre datos de ejemplo"}</p>
-              <div className="mt-5 inline-flex items-center gap-2 rounded-xl border border-emerald-400/20 bg-emerald-400/10 px-3 py-2 text-sm font-bold text-emerald-300">{result?.economic_value_summary ? "Magnitudes separadas · no representan beneficio agregado" : "Demo de Financial Decision Intelligence"}</div>
+              <p className="page-overline">{result?.economic_value_summary ? "Áreas económicas identificadas" : "Workspace económico"}</p>
+              <h1 className="mt-4 text-4xl font-semibold tracking-normal text-[var(--text-primary)] sm:text-5xl">{result?.economic_value_summary ? `${result.economic_value_summary.category_count} áreas` : "Visión de decisión"}</h1>
+              <p className="mt-3 max-w-xl text-sm leading-6 text-[var(--text-secondary)]">{result?.economic_value_summary ? result.economic_value_summary.categories.map((category) => category.label).join(" · ") : "Demo orientativa para explorar caja, margen y exposición económica."}</p>
+              <div className="mt-5 inline-flex items-center gap-2 rounded-lg border border-[rgba(42,199,178,0.28)] bg-[rgba(42,199,178,0.1)] px-3 py-2 text-sm font-medium text-[var(--value)]">{result?.economic_value_summary ? "Magnitudes separadas; no representan beneficio agregado" : "Comparación temporal disponible con dos análisis comparables"}</div>
             </div>
             <div className="hidden w-[45%] items-end justify-end md:flex"><Sparkline /></div>
           </div>
         </Card>
         <Card className="p-6">
-          <p className="text-sm font-semibold text-slate-300">Business Score</p>
-          <div className="mt-6 flex items-end gap-1"><span className="text-5xl font-black text-white">{summary.score}</span><span className="pb-2 text-xl font-bold text-blue-400">/100</span></div>
-          <div className="mt-6 h-2 rounded-full bg-slate-800"><div className="h-2 rounded-full bg-gradient-to-r from-blue-600 to-cyan-400" style={{ width: `${Math.min(100, summary.score)}%` }} /></div>
-          <p className="mt-5 text-sm text-slate-400"><span className="text-emerald-400">●</span> Puede subir a {summary.scoreAfter}/100 aplicando las recomendaciones.</p>
+          <p className="text-sm font-medium text-[var(--text-secondary)]">Business Score</p>
+          <div className="mt-6 flex items-end gap-1"><span className="text-5xl font-semibold text-[var(--text-primary)]">{summary.score}</span><span className="pb-2 text-xl font-semibold text-[var(--primary-soft)]">/100</span></div>
+          <div className="mt-6 h-2 rounded-full bg-[var(--surface-2)]"><div className="h-2 rounded-full bg-[var(--primary)]" style={{ width: `${Math.min(100, summary.score)}%` }} /></div>
+          <p className="mt-5 text-sm text-[var(--text-secondary)]"><span className="text-[var(--value)]">●</span> Puede subir a {summary.scoreAfter}/100 aplicando las recomendaciones.</p>
         </Card>
         <Card className="p-6">
-          <div className="flex items-center gap-2"><span className="text-violet-300">✦</span><p className="text-sm font-bold text-white">BusinessGoal IA</p><Badge className="border-violet-400/30 bg-violet-500/15 text-violet-200">IA</Badge></div>
-          <p className="mt-5 text-sm leading-6 text-slate-300">{result?.executive_summary?.ai_insight || "He encontrado una oportunidad importante. Puedes liberar aproximadamente 18.400 € si reduces el stock de estos 7 productos."}</p>
-          <button onClick={() => setActiveTab("reports")} className="mt-5 rounded-xl border border-violet-400/30 px-4 py-2 text-sm font-bold text-violet-200 hover:bg-violet-500/10">Ver informe ejecutivo</button>
+          <div className="flex items-center gap-2"><p className="text-sm font-semibold text-[var(--text-primary)]">BusinessGoal IA</p><Badge variant="ai">IA</Badge></div>
+          <p className="mt-5 text-sm leading-6 text-[var(--text-secondary)]">{result?.executive_summary?.ai_insight || "Genera un análisis para ver la explicación contextual principal preparada por el motor económico."}</p>
+          <Button onClick={() => setActiveTab("reports")} className="mt-5" variant="secondary" size="sm">Ver informe ejecutivo</Button>
         </Card>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
-        <Kpi title="Oportunidades detectadas" value={summary.opportunities} meta="decisiones agrupadas" icon="◎" tone="blue" />
+        <Kpi title="Decisiones detectadas" value={summary.opportunities} meta="recomendaciones agrupadas" icon="" tone="blue" />
         <Kpi title="Riesgo económico estimado" value={formatCurrency(summary.loss)} meta="coste o exposición detectada" icon="⊕" tone="red" />
-        <Kpi title="Productos críticos" value={summary.critical} meta="requieren revisión" icon="⬡" tone="blue" />
-        <Kpi title="Acciones recomendadas" value={summary.actions} meta="con impacto directo" icon="ϟ" tone="amber" />
+        <Kpi title="Productos críticos" value={summary.critical} meta="requieren revisión" icon="" tone="blue" />
+        <Kpi title="Acciones recomendadas" value={summary.actions} meta="con impacto directo" icon="" tone="amber" />
         <Kpi title="Capital inmovilizado" value={formatCurrency(summary.capital)} meta="stock reducible" icon="▥" tone="red" />
         <Kpi title="Margen medio" value={`${formatNumber(summary.margin, 1)}%`} meta="vs objetivo" icon="%" tone="green" />
       </div>
@@ -688,30 +612,20 @@ function PotentialBreakdown({ result, summary }: { result: AnalyzeResponse | nul
   return (
     <Card className="p-5">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <div><h2 className="text-lg font-black text-white">Cómo se explica el valor económico</h2><p className="mt-1 text-sm text-slate-500">Desglose para separar caja liberable, margen mejorable y margen expuesto. Son magnitudes orientativas y no aditivas.</p></div>
-        <Badge className="border-emerald-400/20 bg-emerald-500/10 text-emerald-300">{result?.trust_layer?.confidence_level || 86}% confianza</Badge>
+        <div><h2 className="section-title">Cómo se explica el valor económico</h2><p className="mt-1 text-sm text-[var(--text-secondary)]">Desglose para separar caja liberable, margen mejorable y margen expuesto. Son magnitudes orientativas y no aditivas.</p></div>
+        <Badge variant="value">{result?.trust_layer?.confidence_level || 86}% confianza</Badge>
       </div>
       <div className="mt-5 grid gap-3 md:grid-cols-3">
-        {components.slice(0, 3).map((component) => <div key={component.key} className="rounded-2xl border border-slate-800 bg-black/20 p-4"><p className="text-xs font-bold text-slate-500">{component.label}</p><p className="mt-2 text-2xl font-black text-white">{formatCurrency(component.amount)}</p><p className="mt-2 line-clamp-2 text-xs leading-5 text-slate-500">{component.description}</p></div>)}
+        {components.slice(0, 3).map((component) => <div key={component.key} className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4"><p className="text-xs font-medium text-[var(--text-muted)]">{component.label}</p><p className="mt-2 text-2xl font-semibold text-[var(--text-primary)]">{formatCurrency(component.amount)}</p><p className="mt-2 line-clamp-2 text-xs leading-5 text-[var(--text-muted)]">{component.description}</p></div>)}
       </div>
     </Card>
   );
 }
 
 function Kpi({ title, value, meta, icon, tone }: { title: string; value: string | number; meta: string; icon: string; tone: "blue" | "green" | "amber" | "red" }) {
-  const tones = {
-    blue: "text-blue-300 border-blue-400/25 bg-blue-500/10",
-    green: "text-emerald-300 border-emerald-400/25 bg-emerald-500/10",
-    amber: "text-amber-300 border-amber-400/25 bg-amber-500/10",
-    red: "text-red-300 border-red-400/25 bg-red-500/10",
-  };
-  return (
-    <div className="neon-card-soft rounded-[22px] p-4">
-      <div className="flex items-start gap-3"><span className={cn("grid h-8 w-8 place-items-center rounded-xl border text-sm", tones[tone])}>{icon}</span><p className="text-xs font-semibold leading-4 text-slate-400">{title}</p></div>
-      <p className="mt-4 text-2xl font-black text-white">{value}</p>
-      <p className="mt-1 text-xs text-slate-500">{meta}</p>
-    </div>
-  );
+  void icon;
+  const tones = { blue: "primary", green: "value", amber: "signal", red: "risk" } as const;
+  return <Metric label={title} value={value} supporting={meta} tone={tones[tone]} />;
 }
 
 function TodayActions({ result, recommendations }: { result: AnalyzeResponse | null; recommendations: Recommendation[] }) {
@@ -720,13 +634,13 @@ function TodayActions({ result, recommendations }: { result: AnalyzeResponse | n
     : recommendations.slice(0, 4).map((rec) => ({ title: rec.first_step || rec.title, subtitle: rec.what_happens, impact: rec.economic_impact, category: categoryLabel(rec.category), priority: rec.priority }));
   return (
     <Card>
-      <div className="flex items-center justify-between"><div><h2 className="text-lg font-black text-white">Qué deberías hacer hoy</h2><p className="text-sm text-slate-500">Acciones priorizadas por impacto económico</p></div><button className="rounded-xl border border-slate-700 px-3 py-2 text-xs font-bold text-slate-300">Ver todas</button></div>
-      <div className="mt-5 divide-y divide-slate-800/80">
+      <div className="flex items-center justify-between"><div><h2 className="section-title">Qué deberías hacer hoy</h2><p className="text-sm text-[var(--text-secondary)]">Acciones priorizadas por impacto económico</p></div><Button variant="ghost" size="sm">Ver todas</Button></div>
+      <div className="mt-5 divide-y divide-[var(--border)]">
         {actions.slice(0, 4).map((action, index) => (
           <div key={`${action.title}-${index}`} className="grid grid-cols-[36px_1fr_auto] gap-3 py-4">
-            <span className={cn("grid h-8 w-8 place-items-center rounded-full text-sm font-black text-white", index === 0 ? "bg-red-500" : index === 1 ? "bg-orange-500" : index === 2 ? "bg-amber-500" : "bg-slate-600")}>{index + 1}</span>
-            <div><p className="text-sm font-bold text-white">{action.title}</p><p className="mt-1 line-clamp-1 text-xs text-slate-500">{action.subtitle}</p></div>
-            <div className="text-right"><Badge className="border-blue-400/20 bg-blue-500/10 text-blue-200">{action.category}</Badge><p className="mt-1 text-sm font-black text-emerald-400">+ {formatCurrency(action.impact)}</p></div>
+            <span className={cn("grid h-8 w-8 place-items-center rounded-full text-sm font-semibold text-white", index === 0 ? "bg-[var(--risk)]" : index === 1 ? "bg-[var(--signal)]" : index === 2 ? "bg-[var(--primary)]" : "bg-[var(--surface-elevated)]")}>{index + 1}</span>
+            <div><p className="text-sm font-semibold text-[var(--text-primary)]">{action.title}</p><p className="mt-1 line-clamp-1 text-xs text-[var(--text-muted)]">{action.subtitle}</p></div>
+            <div className="text-right"><Badge variant="primary">{action.category}</Badge><p className="mt-1 text-sm font-semibold text-[var(--value)]">+ {formatCurrency(action.impact)}</p></div>
           </div>
         ))}
       </div>
@@ -737,18 +651,18 @@ function TodayActions({ result, recommendations }: { result: AnalyzeResponse | n
 function DecisionFeed({ recommendations, setSelectedRecommendation }: { recommendations: Recommendation[]; setSelectedRecommendation: (rec: Recommendation) => void }) {
   return (
     <Card>
-      <div className="flex items-center justify-between"><div><h2 className="text-lg font-black text-white">Decision Feed</h2><p className="text-sm text-slate-500">Recomendaciones impulsadas por IA y datos</p></div><button className="rounded-xl border border-slate-700 px-3 py-2 text-xs font-bold text-slate-300">Ver todas</button></div>
+      <div className="flex items-center justify-between"><div><h2 className="section-title">Decision Feed</h2><p className="text-sm text-[var(--text-secondary)]">Recomendaciones priorizadas por el modelo económico</p></div><Button variant="ghost" size="sm">Ver todas</Button></div>
       <div className="mt-5 space-y-3">
         {recommendations.slice(0, 3).map((rec, index) => (
-          <article key={`${rec.title}-${index}`} className="rounded-2xl border border-slate-800 bg-black/20 p-4 transition hover:border-blue-400/40">
+          <article key={`${rec.title}-${index}`} className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4 transition hover:border-[rgba(91,115,242,0.42)]">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <div className="flex flex-wrap gap-2"><Badge className={priorityClass(rec.priority)}>{priorityLabel(rec.priority)}</Badge><Badge className="border-blue-400/20 bg-blue-500/10 text-blue-200">{categoryLabel(rec.category)}</Badge>{rec.confidence_level ? <Badge className="border-slate-600 bg-slate-800/60 text-slate-300">{formatNumber(rec.confidence_level)}% confianza</Badge> : null}</div>
-                <h3 className="mt-3 text-base font-black text-white">{rec.title}</h3>
-                <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-400">{rec.what_happens}</p>
-                <p className="mt-2 text-sm font-black text-emerald-400">Impacto estimado + {formatCurrency(rec.economic_impact)}</p>
+                <div className="flex flex-wrap gap-2"><Badge className={priorityClass(rec.priority)}>{priorityLabel(rec.priority)}</Badge><Badge variant="primary">{categoryLabel(rec.category)}</Badge>{rec.confidence_level ? <Badge variant="neutral">{formatNumber(rec.confidence_level)}% confianza</Badge> : null}</div>
+                <h3 className="mt-3 text-base font-semibold text-[var(--text-primary)]">{rec.title}</h3>
+                <p className="mt-1 max-w-2xl text-sm leading-6 text-[var(--text-secondary)]">{rec.what_happens}</p>
+                <p className="mt-2 text-sm font-semibold text-[var(--value)]">Impacto estimado + {formatCurrency(rec.economic_impact)}</p>
               </div>
-              <button onClick={() => setSelectedRecommendation(rec)} className="h-10 shrink-0 rounded-xl border border-slate-700 px-4 text-sm font-bold text-white hover:bg-white/5">Ver detalle →</button>
+              <Button onClick={() => setSelectedRecommendation(rec)} className="shrink-0" variant="secondary" size="sm">Ver detalle</Button>
             </div>
           </article>
         ))}
@@ -761,34 +675,34 @@ function ScenarioSimulator({ scenarios, selectedScenario, setSelectedScenario }:
   if (!scenarios?.scenarios?.length) {
     return (
       <Card>
-        <div className="flex items-start justify-between gap-4"><div><h2 className="text-lg font-black text-white">Simulador de escenarios</h2><p className="mt-1 text-sm text-slate-500">Genera un análisis para comparar escenarios prudente, recomendado e intensivo.</p></div><Badge className="border-slate-700 bg-slate-800 text-slate-300">Disponible tras análisis</Badge></div>
+        <div className="flex items-start justify-between gap-4"><div><h2 className="section-title">Simulador de escenarios</h2><p className="mt-1 text-sm text-[var(--text-secondary)]">Genera un análisis para comparar escenarios prudente, recomendado e intensivo.</p></div><Badge variant="neutral">Disponible tras análisis</Badge></div>
       </Card>
     );
   }
   const selected = scenarios.scenarios.find((scenario) => scenario.id === selectedScenario) || scenarios.scenarios[0];
   return (
     <Card>
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between"><div><h2 className="text-lg font-black text-white">Simulador de escenarios</h2><p className="mt-1 text-sm text-slate-500">Estimación orientativa a 30 días. No representa una promesa de resultado.</p></div><div className="flex flex-wrap gap-2">{scenarios.scenarios.map((scenario) => <button key={scenario.id} onClick={() => setSelectedScenario(scenario.id)} className={cn("rounded-xl border px-3 py-2 text-xs font-black", selectedScenario === scenario.id ? "border-blue-400 bg-blue-500/20 text-blue-100" : "border-slate-700 text-slate-400 hover:text-white")}>{scenario.label}</button>)}</div></div>
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between"><div><h2 className="section-title">Simulador de escenarios</h2><p className="mt-1 text-sm text-[var(--text-secondary)]">Estimación orientativa a 30 días. No representa una promesa de resultado.</p></div><div className="flex flex-wrap gap-2">{scenarios.scenarios.map((scenario) => <button key={scenario.id} onClick={() => setSelectedScenario(scenario.id)} className={cn("rounded-lg border px-3 py-2 text-xs font-semibold", selectedScenario === scenario.id ? "border-[rgba(91,115,242,0.48)] bg-[var(--selected)] text-[var(--text-primary)]" : "border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]")}>{scenario.label}</button>)}</div></div>
       <div className="mt-5 grid gap-4 lg:grid-cols-[.8fr_1.2fr]">
-        <div className="rounded-2xl border border-slate-800 bg-black/20 p-5"><p className="text-sm font-bold text-slate-300">Impacto estimado 30 días</p><p className="mt-3 text-4xl font-black text-emerald-400">{formatCurrency(selected.total_impact_30d)}</p><p className="mt-3 text-sm text-slate-500">Score tras escenario: <span className="font-bold text-white">{selected.score_after_scenario}/100</span> · Confianza {selected.confidence}%</p></div>
+        <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-5"><p className="text-sm font-medium text-[var(--text-secondary)]">Impacto estimado 30 días</p><p className="mt-3 text-4xl font-semibold text-[var(--value)]">{formatCurrency(selected.total_impact_30d)}</p><p className="mt-3 text-sm text-[var(--text-muted)]">Score tras escenario: <span className="font-semibold text-[var(--text-primary)]">{selected.score_after_scenario}/100</span> · Confianza {selected.confidence}%</p></div>
         <div className="grid gap-3 sm:grid-cols-3"><MiniScenario label="Caja liberada" value={selected.cash_released_30d} /><MiniScenario label="Mejora margen" value={selected.margin_gain_30d} /><MiniScenario label="Ventas protegidas" value={selected.sales_protected_30d} /></div>
       </div>
-      <ul className="mt-5 grid gap-2 text-sm text-slate-400 lg:grid-cols-2">{selected.assumptions.slice(0, 4).map((item) => <li key={item} className="rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-2">• {item}</li>)}</ul>
+      <ul className="mt-5 grid gap-2 text-sm text-[var(--text-secondary)] lg:grid-cols-2">{selected.assumptions.slice(0, 4).map((item) => <li key={item} className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2">{item}</li>)}</ul>
     </Card>
   );
 }
 
 function MiniScenario({ label, value }: { label: string; value: number }) {
-  return <div className="rounded-2xl border border-slate-800 bg-black/20 p-4"><p className="text-xs font-bold text-slate-500">{label}</p><p className="mt-2 text-xl font-black text-white">{formatCurrency(value)}</p></div>;
+  return <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4"><p className="text-xs font-medium text-[var(--text-muted)]">{label}</p><p className="mt-2 text-xl font-semibold text-[var(--text-primary)]">{formatCurrency(value)}</p></div>;
 }
 
 function ConnectedData({ currentFiles, history }: { currentFiles: [UploadRole, File][]; history: HistoryItem[] }) {
   const filesToShow = currentFiles.length ? currentFiles : [];
   return (
     <Card>
-      <div className="flex items-center justify-between"><h2 className="text-lg font-black text-white">Datos conectados</h2><Badge className="border-emerald-400/20 bg-emerald-500/10 text-emerald-300">Operativo</Badge></div>
+      <div className="flex items-center justify-between"><h2 className="section-title">Datos conectados</h2><Badge variant="value">Operativo</Badge></div>
       <div className="mt-4 space-y-3">
-        {filesToShow.length ? filesToShow.map(([role, file]) => <div key={role} className="flex items-center justify-between rounded-2xl border border-slate-800 bg-black/20 px-4 py-3"><div><p className="text-sm font-bold text-white">{fileLabel(role)}</p><p className="text-xs text-slate-500">{file.name}</p></div><Badge className="border-emerald-400/20 bg-emerald-500/10 text-emerald-300">Procesado</Badge></div>) : history.slice(0, 4).map((item) => <div key={item.id} className="flex items-center justify-between rounded-2xl border border-slate-800 bg-black/20 px-4 py-3"><div><p className="text-sm font-bold text-white">{item.fileNames[0]}</p><p className="text-xs text-slate-500">{dateLabel(item.createdAt)}</p></div><Badge className="border-slate-700 bg-slate-800 text-slate-300">{item.mergeQuality || 86}% calidad</Badge></div>)}
+        {filesToShow.length ? filesToShow.map(([role, file]) => <div key={role} className="flex items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-4 py-3"><div><p className="text-sm font-semibold text-[var(--text-primary)]">{fileLabel(role)}</p><p className="text-xs text-[var(--text-muted)]">{file.name}</p></div><Badge variant="value">Procesado</Badge></div>) : history.slice(0, 4).map((item) => <div key={item.id} className="flex items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-4 py-3"><div><p className="text-sm font-semibold text-[var(--text-primary)]">{item.fileNames[0]}</p><p className="text-xs text-[var(--text-muted)]">{dateLabel(item.createdAt)}</p></div><Badge variant="neutral">{item.mergeQuality || 86}% calidad</Badge></div>)}
       </div>
     </Card>
   );
@@ -797,9 +711,9 @@ function ConnectedData({ currentFiles, history }: { currentFiles: [UploadRole, F
 
 function riskTone(value: string) {
   const normalized = value.toLowerCase();
-  if (normalized.includes("alto") || normalized.includes("crítico")) return "border-red-400/30 bg-red-500/15 text-red-200";
-  if (normalized.includes("medio") || normalized.includes("revis")) return "border-amber-400/30 bg-amber-500/15 text-amber-200";
-  return "border-emerald-400/30 bg-emerald-500/15 text-emerald-200";
+  if (normalized.includes("alto") || normalized.includes("crítico")) return "border-[rgba(244,113,127,0.38)] bg-[rgba(244,113,127,0.12)] text-[var(--risk)]";
+  if (normalized.includes("medio") || normalized.includes("revis")) return "border-[rgba(239,185,76,0.38)] bg-[rgba(239,185,76,0.12)] text-[var(--signal)]";
+  return "border-[rgba(42,199,178,0.34)] bg-[rgba(42,199,178,0.12)] text-[var(--value)]";
 }
 
 function salesUnits(row: ProductRow) {
@@ -838,11 +752,11 @@ function ProductCatalogTable({ products, result }: { products: ProductRow[]; res
   return (
     <div className="space-y-5">
       <Card>
-        <h1 className="text-2xl font-black text-white">Productos</h1>
-        <p className="mt-1 text-sm text-slate-500">Catálogo, margen, categoría y estado económico por producto.</p>
+        <h1 className="text-2xl font-semibold text-[var(--text-primary)]">Productos</h1>
+        <p className="mt-1 text-sm text-[var(--text-secondary)]">Catálogo, margen, categoría y estado económico por producto.</p>
       </Card>
       <Card>
-        <div className="mb-4 flex items-center justify-between"><div><h2 className="text-lg font-black text-white">Catálogo analizado</h2><p className="text-sm text-slate-500">Visión de producto orientada a rentabilidad y decisión comercial.</p></div><button onClick={() => exportRowsToCsv("businessgoal_productos.csv", [
+        <div className="mb-4 flex items-center justify-between"><div><h2 className="section-title">Catálogo analizado</h2><p className="text-sm text-[var(--text-secondary)]">Visión de producto orientada a rentabilidad y decisión comercial.</p></div><Button onClick={() => exportRowsToCsv("businessgoal_productos.csv", [
             { header: "Producto", value: (row) => String(row.product_name || row.producto || "") },
             { header: "SKU", value: (row) => String(row.sku || "") },
             { header: "Categoría", value: (row) => String(row.category || row.categoria || "") },
@@ -851,19 +765,19 @@ function ProductCatalogTable({ products, result }: { products: ProductRow[]; res
             { header: "Precio", value: (row) => productPrice(row) },
             { header: "Margen %", value: (row) => productMargin(row).toFixed(2) },
             { header: "Unidades vendidas", value: (row) => salesUnits(row) },
-          ], products)} className="rounded-xl border border-slate-700 px-3 py-2 text-xs font-bold text-slate-300 hover:bg-white/5">Exportar CSV</button></div>
+          ], products)} variant="secondary" size="sm">Exportar CSV</Button></div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[880px] border-collapse text-left text-sm">
-            <thead><tr className="border-b border-slate-800 text-xs uppercase tracking-wide text-slate-500"><th className="pb-3">Producto</th><th className="pb-3">SKU</th><th className="pb-3">Categoría</th><th className="pb-3">Coste</th><th className="pb-3">Precio</th><th className="pb-3">Margen</th><th className="pb-3">Estado</th><th className="pb-3">Acción sugerida</th></tr></thead>
-            <tbody className="divide-y divide-slate-800/80">
+          <Table className="min-w-[880px]">
+            <TableHead><TableRow><TableHeaderCell>Producto</TableHeaderCell><TableHeaderCell>SKU</TableHeaderCell><TableHeaderCell>Categoría</TableHeaderCell><TableHeaderCell className="text-right">Coste</TableHeaderCell><TableHeaderCell className="text-right">Precio</TableHeaderCell><TableHeaderCell className="text-right">Margen</TableHeaderCell><TableHeaderCell>Estado</TableHeaderCell><TableHeaderCell>Acción sugerida</TableHeaderCell></TableRow></TableHead>
+            <TableBody>
               {products.slice(0, 18).map((p, index) => {
                 const margin = productMargin(p);
                 const status = margin < 20 ? "Margen bajo" : coverageDays(p) > 180 ? "Sobrestock" : salesUnits(p) === 0 ? "Sin ventas" : "Correcto";
                 const action = margin < 20 ? "Revisar precio" : coverageDays(p) > 180 ? "Reducir stock" : salesUnits(p) === 0 ? "Liquidar" : "Mantener";
-                return <tr key={`${p.product_name}-${index}`} className="hover:bg-white/[0.03]"><td className="py-3"><div className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-xl bg-slate-800 text-lg">{productIcon(index)}</span><div><p className="font-bold text-white">{String(p.product_name || p.producto || "Producto")}</p><p className="text-xs text-slate-500">{String(p.supplier || p.proveedor || "Proveedor no indicado")}</p></div></div></td><td className="py-3 text-slate-400">{String(p.sku || "—")}</td><td className="py-3 text-slate-300">{String(p.category || p.categoria || "Sin categoría")}</td><td className="py-3 text-slate-300">{formatCurrency(productCost(p), 2)}</td><td className="py-3 text-slate-300">{formatCurrency(productPrice(p), 2)}</td><td className="py-3 font-bold text-white">{formatNumber(margin, 1)}%</td><td className="py-3"><Badge className={riskTone(status)}>{status}</Badge></td><td className="py-3 text-slate-300">{action}</td></tr>;
+                return <TableRow key={`${p.product_name}-${index}`}><TableCell><div className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-lg bg-[var(--surface-elevated)] text-xs font-semibold text-[var(--text-muted)]">{productIcon(index)}</span><div><p className="font-semibold text-[var(--text-primary)]">{String(p.product_name || p.producto || "Producto")}</p><p className="text-xs text-[var(--text-muted)]">{String(p.supplier || p.proveedor || "Proveedor no indicado")}</p></div></div></TableCell><TableCell>{String(p.sku || "-")}</TableCell><TableCell>{String(p.category || p.categoria || "Sin categoría")}</TableCell><TableCell numeric>{formatCurrency(productCost(p), 2)}</TableCell><TableCell numeric>{formatCurrency(productPrice(p), 2)}</TableCell><TableCell numeric className="font-semibold text-[var(--text-primary)]">{formatNumber(margin, 1)}%</TableCell><TableCell><Badge className={riskTone(status)}>{status}</Badge></TableCell><TableCell>{action}</TableCell></TableRow>;
               })}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       </Card>
       {!result ? <EmptyState title="Datos demo" text="Sube archivos para ver el catálogo con información real de tu negocio." /> : null}
@@ -874,7 +788,7 @@ function ProductCatalogTable({ products, result }: { products: ProductRow[]; res
 function InventoryTable({ products, compact = false }: { products: ProductRow[]; compact?: boolean }) {
   return (
     <Card>
-      <div className="mb-4 flex items-center justify-between"><div><h2 className="text-lg font-black text-white">Inventario detectado</h2><p className="text-sm text-slate-500">Stock, cobertura, capital inmovilizado y acción operativa.</p></div><button onClick={() => exportRowsToCsv("businessgoal_inventario.csv", [
+      <div className="mb-4 flex items-center justify-between"><div><h2 className="section-title">Inventario detectado</h2><p className="text-sm text-[var(--text-secondary)]">Stock, cobertura, capital inmovilizado y acción operativa.</p></div><Button onClick={() => exportRowsToCsv("businessgoal_inventario.csv", [
           { header: "Producto", value: (row) => String(row.product_name || row.producto || row.sku || "") },
           { header: "SKU", value: (row) => String(row.sku || "") },
           { header: "Categoría", value: (row) => String(row.category || row.categoria || "") },
@@ -883,19 +797,19 @@ function InventoryTable({ products, compact = false }: { products: ProductRow[];
           { header: "Rotación 90d", value: (row) => asNumber(row.stock_turnover_90d || row.rotacion, 0).toFixed(2) },
           { header: "Capital inmovilizado", value: (row) => asNumber(row.inventory_value) },
           { header: "Unidades vendidas", value: (row) => salesUnits(row) },
-        ], products)} className="rounded-xl border border-slate-700 px-3 py-2 text-xs font-bold text-slate-300 hover:bg-white/5">Exportar CSV</button></div>
+        ], products)} variant="secondary" size="sm">Exportar CSV</Button></div>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[780px] border-collapse text-left text-sm">
-          <thead><tr className="border-b border-slate-800 text-xs uppercase tracking-wide text-slate-500"><th className="pb-3">Producto</th><th className="pb-3">Categoría</th><th className="pb-3">Stock actual</th><th className="pb-3">Cobertura</th><th className="pb-3">Rotación</th><th className="pb-3">Capital inmovilizado</th><th className="pb-3">Estado</th></tr></thead>
-          <tbody className="divide-y divide-slate-800/80">
+        <Table className="min-w-[780px]">
+          <TableHead><TableRow><TableHeaderCell>Producto</TableHeaderCell><TableHeaderCell>Categoría</TableHeaderCell><TableHeaderCell className="text-right">Stock actual</TableHeaderCell><TableHeaderCell className="text-right">Cobertura</TableHeaderCell><TableHeaderCell className="text-right">Rotación</TableHeaderCell><TableHeaderCell className="text-right">Capital inmovilizado</TableHeaderCell><TableHeaderCell>Estado</TableHeaderCell></TableRow></TableHead>
+          <TableBody>
             {products.slice(0, compact ? 5 : 16).map((p, index) => {
               const turnover = asNumber(p.stock_turnover_90d || p.rotacion, 0);
               const coverage = coverageDays(p);
               const status = salesUnits(p) === 0 && asNumber(p.stock_units_num || p.stock || 0) > 0 ? "Sin ventas" : coverage > 180 || turnover < 0.5 ? "Alto" : turnover < 1 ? "Revisar" : "Correcto";
-              return <tr key={`${p.product_name}-${index}`} className="hover:bg-white/[0.03]"><td className="py-3"><div className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-xl bg-slate-800 text-lg">{productIcon(index)}</span><div><p className="font-bold text-white">{String(p.product_name || p.producto || p.sku || "Producto")}</p><p className="text-xs text-slate-500">{String(p.sku || "SKU no disponible")}</p></div></div></td><td className="py-3 text-slate-300">{String(p.category || p.categoria || "Sin categoría")}</td><td className="py-3 text-slate-300">{formatNumber(p.stock_units_num || p.stock || 0)} uds</td><td className="py-3 text-slate-300">{coverage ? `${formatNumber(coverage, 0)} días` : "—"}</td><td className="py-3"><span className={cn("mr-2 inline-block h-2 w-2 rounded-full", turnover < 0.5 ? "bg-red-400" : turnover < 1 ? "bg-amber-400" : "bg-emerald-400")} />{formatNumber(turnover, 1)}x</td><td className="py-3 font-bold text-white">{formatCurrency(asNumber(p.inventory_value))}</td><td className="py-3"><Badge className={riskTone(status)}>{status}</Badge></td></tr>;
+              return <TableRow key={`${p.product_name}-${index}`}><TableCell><div className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-lg bg-[var(--surface-elevated)] text-xs font-semibold text-[var(--text-muted)]">{productIcon(index)}</span><div><p className="font-semibold text-[var(--text-primary)]">{String(p.product_name || p.producto || p.sku || "Producto")}</p><p className="text-xs text-[var(--text-muted)]">{String(p.sku || "SKU no disponible")}</p></div></div></TableCell><TableCell>{String(p.category || p.categoria || "Sin categoría")}</TableCell><TableCell numeric>{formatNumber(p.stock_units_num || p.stock || 0)} uds</TableCell><TableCell numeric>{coverage ? `${formatNumber(coverage, 0)} días` : "-"}</TableCell><TableCell numeric><span className={cn("mr-2 inline-block h-2 w-2 rounded-full", turnover < 0.5 ? "bg-[var(--risk)]" : turnover < 1 ? "bg-[var(--signal)]" : "bg-[var(--value)]")} />{formatNumber(turnover, 1)}x</TableCell><TableCell numeric className="font-semibold text-[var(--text-primary)]">{formatCurrency(asNumber(p.inventory_value))}</TableCell><TableCell><Badge className={riskTone(status)}>{status}</Badge></TableCell></TableRow>;
             })}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
     </Card>
   );
@@ -905,11 +819,11 @@ function SalesTable({ products, result }: { products: ProductRow[]; result: Anal
   return (
     <div className="space-y-5">
       <Card>
-        <h1 className="text-2xl font-black text-white">Ventas</h1>
-        <p className="mt-1 text-sm text-slate-500">Demanda reciente, ingresos estimados, margen generado y ventas protegidas.</p>
+        <h1 className="text-2xl font-semibold text-[var(--text-primary)]">Ventas</h1>
+        <p className="mt-1 text-sm text-[var(--text-secondary)]">Demanda reciente, ingresos estimados, margen generado y ventas protegidas.</p>
       </Card>
       <Card>
-        <div className="mb-4 flex items-center justify-between"><div><h2 className="text-lg font-black text-white">Rendimiento de ventas</h2><p className="text-sm text-slate-500">Productos ordenados para detectar demanda, margen y riesgo de rotura.</p></div><button onClick={() => exportRowsToCsv("businessgoal_ventas.csv", [
+        <div className="mb-4 flex items-center justify-between"><div><h2 className="section-title">Rendimiento de ventas</h2><p className="text-sm text-[var(--text-secondary)]">Productos ordenados para detectar demanda, margen y riesgo de rotura.</p></div><Button onClick={() => exportRowsToCsv("businessgoal_ventas.csv", [
             { header: "Producto", value: (row) => String(row.product_name || row.producto || row.sku || "") },
             { header: "Categoría", value: (row) => String(row.category || row.categoria || "") },
             { header: "Unidades vendidas", value: (row) => salesUnits(row) },
@@ -917,11 +831,11 @@ function SalesTable({ products, result }: { products: ProductRow[]; result: Anal
             { header: "Margen generado", value: (row) => ((productPrice(row) - productCost(row)) * salesUnits(row)).toFixed(2) },
             { header: "Stock actual", value: (row) => asNumber(row.stock_units_num || row.stock || 0) },
             { header: "Riesgo de rotura", value: (row) => asNumber(row.stock_units_num || row.stock || 0) <= Math.max(5, salesUnits(row) * 0.15) ? "Alto" : "Normal" },
-          ], products)} className="rounded-xl border border-slate-700 px-3 py-2 text-xs font-bold text-slate-300 hover:bg-white/5">Exportar CSV</button></div>
+          ], products)} variant="secondary" size="sm">Exportar CSV</Button></div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[900px] border-collapse text-left text-sm">
-            <thead><tr className="border-b border-slate-800 text-xs uppercase tracking-wide text-slate-500"><th className="pb-3">Producto</th><th className="pb-3">Unidades vendidas</th><th className="pb-3">Ingresos estimados</th><th className="pb-3">Margen generado</th><th className="pb-3">Stock actual</th><th className="pb-3">Riesgo de rotura</th><th className="pb-3">Acción comercial</th></tr></thead>
-            <tbody className="divide-y divide-slate-800/80">
+          <Table className="min-w-[900px]">
+            <TableHead><TableRow><TableHeaderCell>Producto</TableHeaderCell><TableHeaderCell className="text-right">Unidades vendidas</TableHeaderCell><TableHeaderCell className="text-right">Ingresos estimados</TableHeaderCell><TableHeaderCell className="text-right">Margen generado</TableHeaderCell><TableHeaderCell className="text-right">Stock actual</TableHeaderCell><TableHeaderCell>Riesgo de rotura</TableHeaderCell><TableHeaderCell>Acción comercial</TableHeaderCell></TableRow></TableHead>
+            <TableBody>
               {[...products].sort((a, b) => salesUnits(b) - salesUnits(a)).slice(0, 16).map((p, index) => {
                 const units = salesUnits(p);
                 const revenue = productRevenue(p);
@@ -929,10 +843,10 @@ function SalesTable({ products, result }: { products: ProductRow[]; result: Anal
                 const stock = asNumber(p.stock_units_num || p.stock || 0);
                 const risk = units > 20 && stock < Math.max(8, units * 0.2) ? "Alto" : units > 10 && stock < units * 0.4 ? "Medio" : "Bajo";
                 const action = risk === "Alto" ? "Reponer prioritario" : productMargin(p) < 20 && units > 10 ? "Revisar precio" : "Mantener seguimiento";
-                return <tr key={`${p.product_name}-${index}`} className="hover:bg-white/[0.03]"><td className="py-3"><div className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-xl bg-slate-800 text-lg">{productIcon(index)}</span><div><p className="font-bold text-white">{String(p.product_name || p.producto || p.sku || "Producto")}</p><p className="text-xs text-slate-500">{String(p.category || p.categoria || "Sin categoría")}</p></div></div></td><td className="py-3 font-bold text-white">{formatNumber(units)}</td><td className="py-3 text-slate-300">{formatCurrency(revenue)}</td><td className="py-3 text-slate-300">{formatCurrency(profit)}</td><td className="py-3 text-slate-300">{formatNumber(stock)} uds</td><td className="py-3"><Badge className={riskTone(risk)}>{risk}</Badge></td><td className="py-3 text-slate-300">{action}</td></tr>;
+                return <TableRow key={`${p.product_name}-${index}`}><TableCell><div className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-lg bg-[var(--surface-elevated)] text-xs font-semibold text-[var(--text-muted)]">{productIcon(index)}</span><div><p className="font-semibold text-[var(--text-primary)]">{String(p.product_name || p.producto || p.sku || "Producto")}</p><p className="text-xs text-[var(--text-muted)]">{String(p.category || p.categoria || "Sin categoría")}</p></div></div></TableCell><TableCell numeric className="font-semibold text-[var(--text-primary)]">{formatNumber(units)}</TableCell><TableCell numeric>{formatCurrency(revenue)}</TableCell><TableCell numeric>{formatCurrency(profit)}</TableCell><TableCell numeric>{formatNumber(stock)} uds</TableCell><TableCell><Badge className={riskTone(risk)}>{risk}</Badge></TableCell><TableCell>{action}</TableCell></TableRow>;
               })}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       </Card>
       {!result ? <EmptyState title="Datos demo" text="Sube archivos para ver ventas reales, demanda y riesgos de disponibilidad." /> : null}
@@ -962,46 +876,87 @@ function GuidedWizard(props: {
   const roles: UploadRole[] = props.uploadMode === "combined" ? ["combined"] : ["inventory", "sales"];
   return (
     <div className="fixed inset-0 z-40 grid place-items-center bg-black/70 p-4 backdrop-blur-sm">
-      <div className="max-h-[92vh] w-full max-w-5xl overflow-hidden rounded-[30px] border border-slate-800 bg-[#050B16] shadow-2xl">
-        <div className="flex items-start justify-between border-b border-slate-800 p-5"><div><h2 className="text-xl font-black text-white">Nuevo análisis guiado</h2><p className="mt-1 text-sm text-slate-500">Sube datos, valida columnas y genera decisiones económicas.</p></div><button onClick={props.onClose} className="rounded-xl border border-slate-800 px-3 py-2 text-sm font-bold text-slate-300">Cerrar</button></div>
-        <div className="flex gap-2 border-b border-slate-800 px-5 py-4">{stepLabels.map((label, index) => <button key={label} onClick={() => props.setWizardStep((index + 1) as WizardStep)} className={cn("flex-1 rounded-xl px-3 py-2 text-xs font-black", props.wizardStep === index + 1 ? "bg-blue-600 text-white" : index + 1 < props.wizardStep ? "bg-emerald-500/15 text-emerald-200" : "bg-slate-900 text-slate-500")}>{index + 1}. {label}</button>)}</div>
+      <div className="max-h-[92vh] w-full max-w-5xl overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface-1)] shadow-2xl">
+        <div className="flex items-start justify-between border-b border-[var(--border)] p-5"><div><h2 className="text-xl font-semibold text-[var(--text-primary)]">Nuevo análisis guiado</h2><p className="mt-1 text-sm text-[var(--text-secondary)]">Sube datos, valida columnas y genera decisiones económicas.</p></div><Button onClick={props.onClose} variant="secondary" size="sm">Cerrar</Button></div>
+        <div className="flex gap-2 border-b border-[var(--border)] px-5 py-4">{stepLabels.map((label, index) => <button key={label} onClick={() => props.setWizardStep((index + 1) as WizardStep)} className={cn("flex-1 rounded-lg px-3 py-2 text-xs font-semibold", props.wizardStep === index + 1 ? "bg-[var(--selected)] text-[var(--text-primary)]" : index + 1 < props.wizardStep ? "bg-[rgba(42,199,178,0.12)] text-[var(--value)]" : "bg-[var(--surface-2)] text-[var(--text-muted)]")}>{index + 1}. {label}</button>)}</div>
         <div className="max-h-[68vh] overflow-y-auto p-5">
-          {props.error ? <div className="mb-4 rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-sm font-bold text-red-100">{props.error}</div> : null}
+          {props.error ? <div className="mb-4 rounded-lg border border-[rgba(244,113,127,0.42)] bg-[rgba(244,113,127,0.12)] p-4 text-sm font-semibold text-[var(--risk)]">{props.error}</div> : null}
           {props.wizardStep === 1 && <div className="grid gap-4 md:grid-cols-2"><ChoiceCard selected={props.uploadMode === "combined"} title="Tengo todo en un archivo" text="Productos, stock, costes, precios y ventas en un único Excel o CSV." onClick={() => props.setUploadMode("combined")} /><ChoiceCard selected={props.uploadMode === "split"} title="Tengo inventario y ventas separados" text="Cruza stock actual con ventas recientes para un análisis más realista." onClick={() => props.setUploadMode("split")} /></div>}
           {props.wizardStep === 2 && <div className="grid gap-4 md:grid-cols-2">{roles.map((role) => <UploadBox key={role} role={role} file={props.files[role]} setFile={props.setFile} />)}</div>}
           {props.wizardStep === 3 && <ValidationStep inspection={props.inspection} />}
           {props.wizardStep === 4 && <BusinessProfileForm businessProfile={props.businessProfile} setBusinessProfile={props.setBusinessProfile} />}
           {props.wizardStep === 5 && <ConfirmStep files={props.files} inspection={props.inspection} businessProfile={props.businessProfile} />}
         </div>
-        <div className="sticky bottom-0 z-10 flex flex-col gap-3 border-t border-slate-800 bg-[#050B16]/95 p-5 backdrop-blur sm:flex-row sm:justify-between"><button disabled={props.wizardStep === 1} onClick={() => props.setWizardStep(Math.max(1, props.wizardStep - 1) as WizardStep)} className="rounded-xl border border-slate-800 px-4 py-3 text-sm font-bold text-slate-300 disabled:cursor-not-allowed disabled:opacity-40">← Atrás</button><div className="flex flex-wrap gap-3">{props.wizardStep === 2 && <button disabled={!props.uploadReady || props.isInspecting} onClick={props.onInspect} className="rounded-xl bg-slate-800 px-4 py-3 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-40">{props.isInspecting ? "Inspeccionando..." : "Inspeccionar archivos"}</button>}{props.wizardStep < 5 && ![2,3,4].includes(props.wizardStep) && <button onClick={() => props.setWizardStep(Math.min(5, props.wizardStep + 1) as WizardStep)} className="rounded-xl border border-slate-800 px-4 py-3 text-sm font-bold text-slate-300">Siguiente: Archivos →</button>}{props.wizardStep === 3 && <button onClick={() => props.setWizardStep(4)} className="rounded-xl bg-blue-600 px-4 py-3 text-sm font-black text-white">Siguiente: Negocio →</button>}{props.wizardStep === 4 && <button onClick={() => props.setWizardStep(5)} className="rounded-xl bg-blue-600 px-4 py-3 text-sm font-black text-white">Siguiente: Confirmar →</button>}{props.wizardStep === 5 && <button disabled={!props.inspection?.analysis_ready || props.isAnalyzing} onClick={props.onAnalyze} className="rounded-xl bg-blue-600 px-4 py-3 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-40">{props.isAnalyzing ? "Generando..." : "Generar análisis"}</button>}</div></div>
+        <div className="sticky bottom-0 z-10 flex flex-col gap-3 border-t border-[var(--border)] bg-[var(--surface-1)]/95 p-5 backdrop-blur sm:flex-row sm:justify-between"><Button disabled={props.wizardStep === 1} onClick={() => props.setWizardStep(Math.max(1, props.wizardStep - 1) as WizardStep)} variant="secondary">Atrás</Button><div className="flex flex-wrap gap-3">{props.wizardStep === 2 && <Button disabled={!props.uploadReady || props.isInspecting} onClick={props.onInspect} variant="secondary">{props.isInspecting ? "Inspeccionando..." : "Inspeccionar archivos"}</Button>}{props.wizardStep < 5 && ![2,3,4].includes(props.wizardStep) && <Button onClick={() => props.setWizardStep(Math.min(5, props.wizardStep + 1) as WizardStep)} variant="secondary">Siguiente: Archivos</Button>}{props.wizardStep === 3 && <Button onClick={() => props.setWizardStep(4)} variant="primary">Siguiente: Negocio</Button>}{props.wizardStep === 4 && <Button onClick={() => props.setWizardStep(5)} variant="primary">Siguiente: Confirmar</Button>}{props.wizardStep === 5 && <Button disabled={!props.inspection?.analysis_ready || props.isAnalyzing} onClick={props.onAnalyze} variant="primary">{props.isAnalyzing ? "Generando..." : "Generar análisis"}</Button>}</div></div>
       </div>
     </div>
   );
 }
 
 function ChoiceCard({ selected, title, text, onClick }: { selected: boolean; title: string; text: string; onClick: () => void }) {
-  return <button onClick={onClick} className={cn("rounded-3xl border p-6 text-left transition", selected ? "border-blue-400 bg-blue-500/15" : "border-slate-800 bg-slate-950/45 hover:border-slate-600")}><p className="text-lg font-black text-white">{title}</p><p className="mt-2 text-sm leading-6 text-slate-400">{text}</p></button>;
+  return <button onClick={onClick} className={cn("rounded-lg border p-6 text-left transition", selected ? "border-[rgba(91,115,242,0.48)] bg-[var(--selected)]" : "border-[var(--border)] bg-[var(--surface-2)] hover:border-[var(--border-strong)]")}><p className="text-lg font-semibold text-[var(--text-primary)]">{title}</p><p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">{text}</p></button>;
 }
 
 function UploadBox({ role, file, setFile }: { role: UploadRole; file?: File; setFile: (role: UploadRole, file?: File) => void }) {
-  return <label className="block rounded-3xl border border-dashed border-slate-700 bg-slate-950/45 p-6 transition hover:border-blue-400"><p className="text-lg font-black text-white">{fileLabel(role)}</p><p className="mt-1 text-sm text-slate-500">CSV, XLSX o XLS</p><div className="mt-6 rounded-2xl bg-black/30 p-5 text-center"><p className="text-sm font-bold text-slate-300">{file ? file.name : "Arrastra o selecciona un archivo"}</p></div><input type="file" accept=".csv,.xlsx,.xls" className="hidden" onChange={(event) => setFile(role, event.target.files?.[0])} /></label>;
+  return <label className="block rounded-lg border border-dashed border-[var(--border)] bg-[var(--surface-2)] p-6 transition hover:border-[var(--primary)]"><p className="text-lg font-semibold text-[var(--text-primary)]">{fileLabel(role)}</p><p className="mt-1 text-sm text-[var(--text-muted)]">CSV, XLSX o XLS</p><div className="mt-6 rounded-lg bg-[var(--surface-1)] p-5 text-center"><p className="text-sm font-semibold text-[var(--text-secondary)]">{file ? file.name : "Arrastra o selecciona un archivo"}</p></div><input type="file" accept=".csv,.xlsx,.xls" className="hidden" onChange={(event) => setFile(role, event.target.files?.[0])} /></label>;
 }
 
 function ValidationStep({ inspection }: { inspection: InspectBatchResponse | null }) {
   if (!inspection) return <EmptyState title="Primero inspecciona los archivos" text="BusinessGoal revisará columnas, calidad de unión y vista previa antes de analizar." />;
-  return <div className="space-y-4"><div className="grid gap-4 md:grid-cols-3"><Kpi title="Calidad de unión" value={`${inspection.merge_summary?.merge_quality_score || 0}%`} meta={inspection.merge_summary?.join_strategy || "Estrategia pendiente"} icon="✓" tone="green" /><Kpi title="Filas combinadas" value={inspection.rows_after_merge} meta="listas para analizar" icon="▤" tone="blue" /><Kpi title="Archivos usados" value={inspection.merge_summary?.files_count || 0} meta="fuentes de datos" icon="□" tone="amber" /></div><div className="rounded-3xl border border-slate-800 bg-black/25 p-4"><h3 className="font-black text-white">Columnas detectadas</h3><div className="mt-4 grid gap-3 md:grid-cols-2">{inspection.merge_summary?.files?.map((file) => <div key={`${file.role}-${file.file_name}`} className="rounded-2xl border border-slate-800 p-4"><p className="text-sm font-bold text-white">{fileLabel(file.role)} · {file.file_name}</p><p className="mt-2 text-xs text-slate-500">Calidad {file.quality_score}% · {file.quality_label}</p><div className="mt-3 flex flex-wrap gap-2">{Object.entries(file.mapping || {}).filter(([, column]) => column).slice(0, 8).map(([field, column]) => <Badge key={field} className="border-slate-700 bg-slate-800 text-slate-300">{field} → {column}</Badge>)}</div></div>)}</div></div><div className="rounded-3xl border border-slate-800 bg-black/25 p-4"><h3 className="font-black text-white">Vista previa</h3><pre className="mt-3 max-h-56 overflow-auto rounded-2xl bg-slate-950 p-4 text-xs text-slate-400">{JSON.stringify(inspection.preview_rows?.slice(0, 4), null, 2)}</pre></div></div>;
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-4 md:grid-cols-3">
+        <Kpi title="Calidad de unión" value={`${inspection.merge_summary?.merge_quality_score || 0}%`} meta={inspection.merge_summary?.join_strategy || "Estrategia pendiente"} icon="" tone="green" />
+        <Kpi title="Filas combinadas" value={inspection.rows_after_merge} meta="listas para analizar" icon="" tone="blue" />
+        <Kpi title="Archivos usados" value={inspection.merge_summary?.files_count || 0} meta="fuentes de datos" icon="" tone="amber" />
+      </div>
+      <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4">
+        <h3 className="font-semibold text-[var(--text-primary)]">Columnas detectadas</h3>
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          {inspection.merge_summary?.files?.map((file) => (
+            <div key={`${file.role}-${file.file_name}`} className="rounded-lg border border-[var(--border)] p-4">
+              <p className="text-sm font-semibold text-[var(--text-primary)]">{fileLabel(file.role)} · {file.file_name}</p>
+              <p className="mt-2 text-xs text-[var(--text-muted)]">Calidad {file.quality_score}% · {file.quality_label}</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {Object.entries(file.mapping || {}).filter(([, column]) => column).slice(0, 8).map(([field, column]) => <Badge key={field} variant="neutral">{field}: {column}</Badge>)}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4">
+        <h3 className="font-semibold text-[var(--text-primary)]">Vista previa</h3>
+        <pre className="mt-3 max-h-56 overflow-auto rounded-lg bg-[var(--surface-1)] p-4 text-xs text-[var(--text-secondary)]">{JSON.stringify(inspection.preview_rows?.slice(0, 4), null, 2)}</pre>
+      </div>
+    </div>
+  );
 }
 
 function BusinessProfileForm({ businessProfile, setBusinessProfile }: { businessProfile: BusinessProfile; setBusinessProfile: (profile: BusinessProfile) => void }) {
   function update(key: keyof BusinessProfile, value: string | number) { setBusinessProfile({ ...businessProfile, [key]: value }); }
-  return <div className="grid gap-4 md:grid-cols-2"><Field label="Nombre de empresa"><input value={businessProfile.company_name || ""} onChange={(e) => update("company_name", e.target.value)} className="w-full rounded-xl border border-slate-800 bg-black/30 px-4 py-3 text-sm outline-none" /></Field><Field label="Sector"><select value={businessProfile.sector} onChange={(e) => update("sector", e.target.value)} className="w-full rounded-xl border border-slate-800 bg-black/30 px-4 py-3 text-sm outline-none">{SECTOR_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field><Field label="Objetivo del análisis"><select value={businessProfile.analysis_goal} onChange={(e) => update("analysis_goal", e.target.value)} className="w-full rounded-xl border border-slate-800 bg-black/30 px-4 py-3 text-sm outline-none">{ANALYSIS_GOAL_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field><Field label="Margen objetivo (%)"><input type="number" value={businessProfile.target_margin_pct} onChange={(e) => update("target_margin_pct", Number(e.target.value))} className="w-full rounded-xl border border-slate-800 bg-black/30 px-4 py-3 text-sm outline-none" /></Field><Field label="Margen bajo (%)"><input type="number" value={businessProfile.low_margin_pct} onChange={(e) => update("low_margin_pct", Number(e.target.value))} className="w-full rounded-xl border border-slate-800 bg-black/30 px-4 py-3 text-sm outline-none" /></Field><Field label="Cobertura máxima stock (días)"><input type="number" value={businessProfile.max_coverage_days} onChange={(e) => update("max_coverage_days", Number(e.target.value))} className="w-full rounded-xl border border-slate-800 bg-black/30 px-4 py-3 text-sm outline-none" /></Field></div>;
+  const inputClass = "app-input w-full rounded-xl px-4 py-3 text-sm outline-none";
+  return <div className="grid gap-4 md:grid-cols-2"><Field label="Nombre de empresa"><input value={businessProfile.company_name || ""} onChange={(e) => update("company_name", e.target.value)} className={inputClass} /></Field><Field label="Sector"><select value={businessProfile.sector} onChange={(e) => update("sector", e.target.value)} className={inputClass}>{SECTOR_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field><Field label="Objetivo del análisis"><select value={businessProfile.analysis_goal} onChange={(e) => update("analysis_goal", e.target.value)} className={inputClass}>{ANALYSIS_GOAL_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field><Field label="Margen objetivo (%)"><input type="number" value={businessProfile.target_margin_pct} onChange={(e) => update("target_margin_pct", Number(e.target.value))} className={inputClass} /></Field><Field label="Margen bajo (%)"><input type="number" value={businessProfile.low_margin_pct} onChange={(e) => update("low_margin_pct", Number(e.target.value))} className={inputClass} /></Field><Field label="Cobertura máxima stock (días)"><input type="number" value={businessProfile.max_coverage_days} onChange={(e) => update("max_coverage_days", Number(e.target.value))} className={inputClass} /></Field></div>;
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) { return <label className="block"><span className="mb-2 block text-sm font-bold text-slate-300">{label}</span>{children}</label>; }
+function Field({ label, children }: { label: string; children: React.ReactNode }) { return <label className="block"><span className="mb-2 block text-sm font-medium text-[var(--text-secondary)]">{label}</span>{children}</label>; }
 
 function ConfirmStep({ files, inspection, businessProfile }: { files: FileState; inspection: InspectBatchResponse | null; businessProfile: BusinessProfile }) {
   const used = Object.entries(files).filter(([, f]) => Boolean(f)) as [UploadRole, File][];
-  return <div className="space-y-4"><div className="rounded-3xl border border-slate-800 bg-black/25 p-5"><h3 className="text-lg font-black text-white">Resumen antes de generar</h3><div className="mt-4 grid gap-3 md:grid-cols-2">{used.map(([role, file]) => <div key={role} className="rounded-2xl bg-slate-950/60 p-4"><p className="font-bold text-white">{fileLabel(role)}</p><p className="text-sm text-slate-500">{file.name}</p></div>)}</div></div><div className="rounded-3xl border border-slate-800 bg-black/25 p-5"><p className="font-bold text-white">Perfil aplicado</p><p className="mt-2 text-sm text-slate-400">Sector: {businessProfile.sector} · Objetivo: {businessProfile.analysis_goal} · Margen objetivo: {businessProfile.target_margin_pct}%</p><p className="mt-2 text-sm text-slate-500">Calidad de unión: {inspection?.merge_summary?.merge_quality_score || 0}%</p></div></div>;
+  return (
+    <div className="space-y-4">
+      <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-5">
+        <h3 className="text-lg font-semibold text-[var(--text-primary)]">Resumen antes de generar</h3>
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          {used.map(([role, file]) => <div key={role} className="rounded-lg bg-[var(--surface-1)] p-4"><p className="font-semibold text-[var(--text-primary)]">{fileLabel(role)}</p><p className="text-sm text-[var(--text-muted)]">{file.name}</p></div>)}
+        </div>
+      </div>
+      <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-5">
+        <p className="font-semibold text-[var(--text-primary)]">Perfil aplicado</p>
+        <p className="mt-2 text-sm text-[var(--text-secondary)]">Sector: {businessProfile.sector} · Objetivo: {businessProfile.analysis_goal} · Margen objetivo: {businessProfile.target_margin_pct}%</p>
+        <p className="mt-2 text-sm text-[var(--text-muted)]">Calidad de unión: {inspection?.merge_summary?.merge_quality_score || 0}%</p>
+      </div>
+    </div>
+  );
 }
 
 function AnalysisView({
@@ -1026,18 +981,15 @@ function AnalysisView({
       <Card>
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-2xl font-black text-white">Análisis</h1>
-            <p className="text-sm text-slate-500">
+            <h1 className="text-2xl font-semibold text-[var(--text-primary)]">Análisis</h1>
+            <p className="text-sm text-[var(--text-secondary)]">
               Revisión técnica y económica del último análisis generado.
             </p>
           </div>
 
-          <button
-            onClick={() => setIsWizardOpen(true)}
-            className="rounded-xl bg-blue-600 px-4 py-3 text-sm font-black text-white"
-          >
+          <Button onClick={() => setIsWizardOpen(true)} variant="primary">
             Nuevo análisis
-          </button>
+          </Button>
         </div>
       </Card>
 
@@ -1062,26 +1014,83 @@ function AnalysisView({
   );
 }
 
-function OpportunitiesView({ recommendations, setSelectedRecommendation }: { recommendations: Recommendation[]; setSelectedRecommendation: (rec: Recommendation) => void }) { return <div className="space-y-5"><Card><h1 className="text-2xl font-black text-white">Oportunidades</h1><p className="mt-1 text-sm text-slate-500">Todas las decisiones económicas detectadas, ordenadas por impacto.</p></Card><DecisionFeed recommendations={recommendations} setSelectedRecommendation={setSelectedRecommendation} /></div>; }
+function DecisionsView({ recommendations, setSelectedRecommendation }: { recommendations: Recommendation[]; setSelectedRecommendation: (rec: Recommendation) => void }) {
+  return (
+    <div className="space-y-5">
+      <Card>
+        <p className="page-overline">Decision Center</p>
+        <h1 className="mt-2 text-2xl font-semibold text-[var(--text-primary)]">Decisiones</h1>
+        <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--text-secondary)]">
+          Vista transitoria de decisiones económicas detectadas. El Decision Center completo se construirá en v20.3 con estado, responsable, baseline y seguimiento.
+        </p>
+      </Card>
+      <DecisionFeed recommendations={recommendations} setSelectedRecommendation={setSelectedRecommendation} />
+    </div>
+  );
+}
 
+function ScenariosView({ scenarios, selectedScenario, setSelectedScenario }: { scenarios?: ScenarioSimulation; selectedScenario: string; setSelectedScenario: (id: string) => void }) {
+  return (
+    <div className="space-y-5">
+      <Card>
+        <p className="page-overline">Scenario Lab</p>
+        <h1 className="mt-2 text-2xl font-semibold text-[var(--text-primary)]">Escenarios</h1>
+        <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--text-secondary)]">
+          Comparación orientativa de escenarios generados por el motor actual. La edición de parámetros queda preparada para una fase posterior.
+        </p>
+      </Card>
+      <ScenarioSimulator scenarios={scenarios} selectedScenario={selectedScenario} setSelectedScenario={setSelectedScenario} />
+    </div>
+  );
+}
 
-function FilesView({ currentFiles, history, setIsWizardOpen }: { currentFiles: [UploadRole, File][]; history: HistoryItem[]; setIsWizardOpen: (value: boolean) => void }) {
+function DataView({ currentFiles, history, setIsWizardOpen }: { currentFiles: [UploadRole, File][]; history: HistoryItem[]; setIsWizardOpen: (value: boolean) => void }) {
   const latest = history[0];
   return (
     <div className="space-y-5">
-      <Card><div className="flex items-center justify-between"><div><h1 className="text-2xl font-black text-white">Archivos</h1><p className="text-sm text-slate-500">Carga, validación y estado de procesamiento de los datos usados por BusinessGoal.</p></div><button onClick={() => setIsWizardOpen(true)} className="rounded-xl bg-blue-600 px-4 py-3 text-sm font-black text-white">Subir archivos</button></div></Card>
+      <Card><div className="flex items-center justify-between gap-4"><div><h1 className="text-2xl font-semibold text-[var(--text-primary)]">Datos</h1><p className="mt-1 text-sm text-[var(--text-secondary)]">Carga, validación y estado de procesamiento de las fuentes usadas por BusinessGoal.</p></div><Button onClick={() => setIsWizardOpen(true)} variant="primary">Actualizar datos</Button></div></Card>
       <Card>
-        <div className="mb-5 flex items-center justify-between"><div><h2 className="text-lg font-black text-white">Estado de datos conectados</h2><p className="text-sm text-slate-500">Último análisis, calidad de unión y fuentes procesadas.</p></div><Badge className="border-emerald-400/20 bg-emerald-500/10 text-emerald-300">Operativo</Badge></div>
-        <div className="grid gap-4 md:grid-cols-3"><Kpi title="Calidad de datos" value={`${latest?.mergeQuality || 0}%`} meta="última inspección" icon="✓" tone="green" /><Kpi title="Archivos usados" value={latest?.fileNames?.length || currentFiles.length || 0} meta="fuentes del análisis" icon="□" tone="blue" /><Kpi title="Historial" value={history.length} meta="análisis guardados" icon="◷" tone="amber" /></div>
-        <div className="mt-5 space-y-3">{(currentFiles.length ? currentFiles.map(([role, file]) => ({ role, name: file.name, date: "Sesión actual", quality: latest?.mergeQuality || 0 })) : latest?.fileNames.map((name, index) => ({ role: index === 0 ? "inventory" : "sales", name, date: dateLabel(latest.createdAt), quality: latest.mergeQuality || 0 })) || []).map((file) => <div key={`${file.role}-${file.name}`} className="grid gap-3 rounded-2xl border border-slate-800 bg-black/20 p-4 md:grid-cols-[1fr_auto_auto_auto]"><div><p className="font-bold text-white">{fileLabel(file.role)}</p><p className="mt-1 text-xs text-slate-500">{file.name}</p></div><Badge className="border-blue-400/20 bg-blue-500/10 text-blue-200">{file.date}</Badge><Badge className="border-emerald-400/20 bg-emerald-500/10 text-emerald-300">Calidad {file.quality}%</Badge><button onClick={() => setIsWizardOpen(true)} className="rounded-xl border border-slate-700 px-3 py-2 text-xs font-bold text-slate-300">Reemplazar</button></div>)}</div>
+        <div className="mb-5 flex items-center justify-between"><div><h2 className="section-title">Estado de datos conectados</h2><p className="text-sm text-[var(--text-secondary)]">Último análisis, calidad de unión y fuentes procesadas.</p></div><Badge variant="value">Operativo</Badge></div>
+        <div className="grid gap-4 md:grid-cols-3"><Kpi title="Calidad de datos" value={`${latest?.mergeQuality || 0}%`} meta="última inspección" icon="" tone="green" /><Kpi title="Archivos usados" value={latest?.fileNames?.length || currentFiles.length || 0} meta="fuentes del análisis" icon="" tone="blue" /><Kpi title="Historial" value={history.length} meta="análisis guardados" icon="" tone="amber" /></div>
+        <div className="mt-5 space-y-3">{(currentFiles.length ? currentFiles.map(([role, file]) => ({ role, name: file.name, date: "Sesión actual", quality: latest?.mergeQuality || 0 })) : latest?.fileNames.map((name, index) => ({ role: index === 0 ? "inventory" : "sales", name, date: dateLabel(latest.createdAt), quality: latest.mergeQuality || 0 })) || []).map((file) => <div key={`${file.role}-${file.name}`} className="grid gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4 md:grid-cols-[1fr_auto_auto_auto]"><div><p className="font-semibold text-[var(--text-primary)]">{fileLabel(file.role)}</p><p className="mt-1 text-xs text-[var(--text-muted)]">{file.name}</p></div><Badge variant="primary">{file.date}</Badge><Badge variant="value">Calidad {file.quality}%</Badge><Button onClick={() => setIsWizardOpen(true)} variant="secondary" size="sm">Reemplazar</Button></div>)}</div>
       </Card>
+    </div>
+  );
+}
+
+function AIContextView({ result, recommendations }: { result: AnalyzeResponse | null; recommendations: Recommendation[] }) {
+  const topRecommendation = recommendations[0];
+  return (
+    <div className="space-y-5">
+      <Card variant="elevated">
+        <p className="page-overline">BusinessGoal IA</p>
+        <h1 className="mt-2 text-2xl font-semibold text-[var(--text-primary)]">Contexto inteligente</h1>
+        <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--text-secondary)]">
+          Esta superficie prepara explicaciones contextuales sobre análisis, productos y decisiones. No hay chatbot ni generación de IA activa en v20.1.
+        </p>
+      </Card>
+      <div className="grid gap-5 lg:grid-cols-[1fr_1fr]">
+        <Card>
+          <h2 className="section-title">Insight disponible</h2>
+          <p className="mt-3 text-sm leading-6 text-[var(--text-secondary)]">
+            {result?.executive_summary?.ai_insight || "Cuando generes un análisis, BusinessGoal mostrará aquí la explicación principal preparada por el motor económico."}
+          </p>
+        </Card>
+        <Card>
+          <h2 className="section-title">Próxima decisión contextual</h2>
+          <p className="mt-3 text-sm leading-6 text-[var(--text-secondary)]">
+            {topRecommendation?.title || "Las decisiones aparecerán aquí cuando exista un análisis real con recomendaciones."}
+          </p>
+          {topRecommendation ? <Badge className="mt-4" variant="ai">{priorityLabel(topRecommendation.priority)}</Badge> : null}
+        </Card>
+      </div>
     </div>
   );
 }
 
 function InventorySalesView({ mode, result, products }: { mode: "inventory" | "sales"; result: AnalyzeResponse | null; products: ProductRow[] }) {
   if (mode === "sales") return <SalesTable products={products} result={result} />;
-  return <div className="space-y-5"><Card><h1 className="text-2xl font-black text-white">Inventario</h1><p className="text-sm text-slate-500">Stock, cobertura, valor inmovilizado, rotación y estado operativo.</p></Card><InventoryTable products={products} />{!result ? <EmptyState title="Datos demo" text="Sube archivos para ver esta sección con información real de tu negocio." /> : null}</div>;
+  return <div className="space-y-5"><Card><h1 className="text-2xl font-semibold text-[var(--text-primary)]">Inventario</h1><p className="mt-1 text-sm text-[var(--text-secondary)]">Stock, cobertura, valor inmovilizado, rotación y estado operativo.</p></Card><InventoryTable products={products} />{!result ? <EmptyState title="Datos demo" text="Sube archivos para ver esta sección con información real de tu negocio." /> : null}</div>;
 }
 
 
@@ -1235,8 +1244,69 @@ function ReportMetric({ label, value, tone }: { label: string; value: string | n
 
 function ActionPeriod({ title, items, light = false }: { title: string; items: string[]; light?: boolean }) { return <div className={cn("rounded-2xl border p-4", light ? "border-slate-200 bg-slate-50" : "border-slate-800 bg-black/20")}><p className={cn("font-black", light ? "text-slate-950" : "text-white")}>{title}</p><ul className={cn("mt-3 space-y-2 text-sm", light ? "text-slate-700" : "text-slate-400")}>{items.map((item) => <li key={item}>• {item}</li>)}</ul></div>; }
 
-function HistoryView({ history, setResult, setActiveTab }: { history: HistoryItem[]; setResult: (value: AnalyzeResponse | null) => void; setActiveTab: (tab: TabId) => void }) { return <div className="space-y-5"><Card><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h1 className="text-2xl font-black text-white">Historial de análisis</h1><p className="text-sm text-slate-500">Análisis guardados localmente durante la demo.</p></div><button onClick={() => exportHistoryToCsv(history)} className="rounded-xl border border-slate-700 px-3 py-2 text-xs font-bold text-slate-300 hover:bg-white/5">Exportar historial CSV</button></div></Card><Card><div className="overflow-x-auto"><table className="w-full min-w-[820px] text-left text-sm"><thead><tr className="border-b border-slate-800 text-xs uppercase text-slate-500"><th className="pb-3">Fecha</th><th className="pb-3">Archivos</th><th className="pb-3">Valor económico</th><th className="pb-3">Oportunidades</th><th className="pb-3">Score</th><th className="pb-3">Calidad</th><th className="pb-3">Acción</th></tr></thead><tbody className="divide-y divide-slate-800">{history.map((item) => <tr key={item.id}><td className="py-4 text-slate-300">{dateLabel(item.createdAt)}</td><td className="py-4 text-slate-400">{item.fileNames.join(" + ")}</td><td className="py-4 font-black text-emerald-400">{formatCurrency(item.potential)}</td><td className="py-4 text-slate-300">{item.opportunities}</td><td className="py-4 text-slate-300">{item.score}/100</td><td className="py-4 text-slate-300">{item.mergeQuality || "—"}%</td><td className="py-4"><button onClick={() => { if (item.reportSnapshot) setResult(item.reportSnapshot); setActiveTab("reports"); }} className="rounded-xl border border-slate-700 px-3 py-2 text-xs font-bold text-white">Ver informe</button></td></tr>)}</tbody></table></div></Card></div>; }
+function HistoryView({ history, setResult, setActiveTab }: { history: HistoryItem[]; setResult: (value: AnalyzeResponse | null) => void; setActiveTab: (tab: TabId) => void }) {
+  return (
+    <div className="space-y-5">
+      <Card>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold text-[var(--text-primary)]">Historial de análisis</h1>
+            <p className="mt-1 text-sm text-[var(--text-secondary)]">Análisis guardados localmente durante la demo.</p>
+          </div>
+          <Button onClick={() => exportHistoryToCsv(history)} variant="secondary" size="sm">Exportar historial CSV</Button>
+        </div>
+      </Card>
+      <Card>
+        <div className="overflow-x-auto">
+          <Table className="min-w-[820px]">
+            <TableHead><TableRow><TableHeaderCell>Fecha</TableHeaderCell><TableHeaderCell>Archivos</TableHeaderCell><TableHeaderCell className="text-right">Valor económico</TableHeaderCell><TableHeaderCell className="text-right">Oportunidades</TableHeaderCell><TableHeaderCell className="text-right">Score</TableHeaderCell><TableHeaderCell className="text-right">Calidad</TableHeaderCell><TableHeaderCell>Acción</TableHeaderCell></TableRow></TableHead>
+            <TableBody>
+              {history.map((item) => (
+                <TableRow key={item.id}>
+                  <TableCell>{dateLabel(item.createdAt)}</TableCell>
+                  <TableCell>{item.fileNames.join(" + ")}</TableCell>
+                  <TableCell numeric className="font-semibold text-[var(--value)]">{formatCurrency(item.potential)}</TableCell>
+                  <TableCell numeric>{item.opportunities}</TableCell>
+                  <TableCell numeric>{item.score}/100</TableCell>
+                  <TableCell numeric>{item.mergeQuality || "-"}%</TableCell>
+                  <TableCell><Button onClick={() => { if (item.reportSnapshot) setResult(item.reportSnapshot); setActiveTab("reports"); }} variant="secondary" size="sm">Ver informe</Button></TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      </Card>
+    </div>
+  );
+}
 
-function SettingsView({ businessProfile, setBusinessProfile }: { businessProfile: BusinessProfile; setBusinessProfile: (profile: BusinessProfile) => void }) { return <div className="space-y-5"><Card><h1 className="text-2xl font-black text-white">Configuración</h1><p className="text-sm text-slate-500">Perfil de negocio usado por defecto en los análisis.</p></Card><Card><BusinessProfileForm businessProfile={businessProfile} setBusinessProfile={setBusinessProfile} /></Card></div>; }
+function SettingsView({ businessProfile, setBusinessProfile }: { businessProfile: BusinessProfile; setBusinessProfile: (profile: BusinessProfile) => void }) { return <div className="space-y-5"><Card><h1 className="text-2xl font-semibold text-[var(--text-primary)]">Configuración</h1><p className="mt-1 text-sm text-[var(--text-secondary)]">Perfil de negocio usado por defecto en los análisis.</p></Card><Card><BusinessProfileForm businessProfile={businessProfile} setBusinessProfile={setBusinessProfile} /></Card></div>; }
 
-function RecommendationDrawer({ recommendation, onClose }: { recommendation: Recommendation; onClose: () => void }) { return <div className="fixed inset-0 z-50 flex justify-end bg-black/65 backdrop-blur-sm"><aside className="h-full w-full max-w-xl overflow-y-auto border-l border-slate-800 bg-[#050B16] p-6 shadow-2xl"><div className="flex items-start justify-between"><div><Badge className={priorityClass(recommendation.priority)}>{priorityLabel(recommendation.priority)}</Badge><h2 className="mt-4 text-2xl font-black text-white">{recommendation.title}</h2><p className="mt-2 text-3xl font-black text-emerald-400">+ {formatCurrency(recommendation.economic_impact)}</p></div><button onClick={onClose} className="rounded-xl border border-slate-800 px-3 py-2 text-sm font-bold text-slate-300">Cerrar</button></div><div className="mt-6 space-y-4">{[{ title: "Qué ocurre", text: recommendation.what_happens }, { title: "Causa probable", text: recommendation.probable_cause }, { title: "Por qué importa", text: recommendation.why_it_matters }, { title: "Primer paso", text: recommendation.first_step }, { title: "Acción recomendada", text: recommendation.recommended_action }, { title: "Beneficio esperado", text: recommendation.expected_benefit }, { title: "Responsable sugerido", text: recommendation.suggested_owner }, { title: "Horizonte", text: recommendation.timeframe }].filter((item) => item.text).map((item) => <div key={item.title} className="rounded-2xl border border-slate-800 bg-black/25 p-4"><p className="text-sm font-black text-white">{item.title}</p><p className="mt-2 text-sm leading-6 text-slate-400">{item.text}</p></div>)}</div></aside></div>; }
+function RecommendationDrawer({ recommendation, onClose }: { recommendation: Recommendation; onClose: () => void }) {
+  return (
+    <DrawerShell
+      title={recommendation.title}
+      onClose={onClose}
+      eyebrow={<Badge className={priorityClass(recommendation.priority)}>{priorityLabel(recommendation.priority)}</Badge>}
+    >
+      <p className="mt-2 text-3xl font-semibold text-[var(--value)]">+ {formatCurrency(recommendation.economic_impact)}</p>
+      <div className="mt-6 space-y-4">
+        {[
+          { title: "Qué ocurre", text: recommendation.what_happens },
+          { title: "Causa probable", text: recommendation.probable_cause },
+          { title: "Por qué importa", text: recommendation.why_it_matters },
+          { title: "Primer paso", text: recommendation.first_step },
+          { title: "Acción recomendada", text: recommendation.recommended_action },
+          { title: "Beneficio esperado", text: recommendation.expected_benefit },
+          { title: "Responsable sugerido", text: recommendation.suggested_owner },
+          { title: "Horizonte", text: recommendation.timeframe },
+        ].filter((item) => item.text).map((item) => (
+          <div key={item.title} className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4">
+            <p className="text-sm font-semibold text-[var(--text-primary)]">{item.title}</p>
+            <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">{item.text}</p>
+          </div>
+        ))}
+      </div>
+    </DrawerShell>
+  );
+}
