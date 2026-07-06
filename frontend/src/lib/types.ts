@@ -17,6 +17,7 @@ export type EconomicClass =
   | "CASH_RELEASE"
   | "MARGIN_OPPORTUNITY"
   | "REVENUE_AT_RISK"
+  | "GROSS_MARGIN_AT_RISK"
   | "COST_EXPOSURE"
   | "INVENTORY_VALUE"
   | "OTHER"
@@ -43,6 +44,8 @@ export type EconomicValueCategory = {
 export type EconomicValueSummary = {
   display_total: number;
   display_total_semantics: string;
+  display_total_role: "LEGACY_DIMENSIONAL_SUM" | string;
+  display_total_recommended_for_hero: boolean;
   is_additive: boolean;
   unit: "EUR" | string;
   categories: EconomicValueCategory[];
@@ -68,14 +71,14 @@ export type ProductEconomicProfile = {
   category?: string | null;
   supplier?: string | null;
   metrics: {
-    stock_units: number;
-    units_sold: number;
-    revenue: number;
-    gross_margin_pct: number;
-    gross_profit_estimated: number;
-    stock_coverage_days: number;
-    stock_turnover_90d: number;
-    inventory_value: number;
+    stock_units: number | null;
+    units_sold: number | null;
+    revenue: number | null;
+    gross_margin_pct: number | null;
+    gross_profit_estimated: number | null;
+    stock_coverage_days: number | null;
+    stock_turnover_90d: number | null;
+    inventory_value: number | null;
   };
   economic_status: string;
   decision_ids?: string[];
@@ -285,6 +288,9 @@ export type ComparabilityResult = {
   shared_products: number;
   product_match_rate: number;
   retained_product_rate: number;
+  product_match_scope: "FULL" | "SAMPLED" | string;
+  catalog_size_baseline: number;
+  catalog_size_candidate: number;
   catalog_delta_rate: number;
   metric_coverage: number;
   schema_overlap: number;

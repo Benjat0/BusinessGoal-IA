@@ -622,10 +622,10 @@ function DashboardView({ summary, result, recommendations, scenarios, selectedSc
         <Card className="overflow-hidden p-6">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <p className="text-sm font-semibold text-slate-300">Valor económico identificado</p>
-              <h1 className="mt-4 text-5xl font-black tracking-tight text-white sm:text-6xl">{formatCurrency(summary.potential)}</h1>
-              <p className="mt-2 text-sm text-slate-400">caja, margen y ventas expuestas no aditivas</p>
-              <div className="mt-5 inline-flex items-center gap-2 rounded-xl border border-emerald-400/20 bg-emerald-400/10 px-3 py-2 text-sm font-bold text-emerald-300">↗ 18,6% vs. mes anterior</div>
+              <p className="text-sm font-semibold text-slate-300">{result?.economic_value_summary ? "Áreas económicas identificadas" : "Valor económico identificado"}</p>
+              <h1 className="mt-4 text-5xl font-black tracking-tight text-white sm:text-6xl">{result?.economic_value_summary ? `${result.economic_value_summary.category_count} áreas` : formatCurrency(summary.potential)}</h1>
+              <p className="mt-2 text-sm text-slate-400">{result?.economic_value_summary ? result.economic_value_summary.categories.map((category) => category.label).join(" · ") : "Estimación orientativa sobre datos de ejemplo"}</p>
+              <div className="mt-5 inline-flex items-center gap-2 rounded-xl border border-emerald-400/20 bg-emerald-400/10 px-3 py-2 text-sm font-bold text-emerald-300">{result?.economic_value_summary ? "Magnitudes separadas · no representan beneficio agregado" : "Demo de Financial Decision Intelligence"}</div>
             </div>
             <div className="hidden w-[45%] items-end justify-end md:flex"><Sparkline /></div>
           </div>
@@ -688,7 +688,7 @@ function PotentialBreakdown({ result, summary }: { result: AnalyzeResponse | nul
   return (
     <Card className="p-5">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <div><h2 className="text-lg font-black text-white">Cómo se explica el valor económico</h2><p className="mt-1 text-sm text-slate-500">Desglose para separar caja liberable, margen y ventas expuestas. Son magnitudes orientativas y no aditivas.</p></div>
+        <div><h2 className="text-lg font-black text-white">Cómo se explica el valor económico</h2><p className="mt-1 text-sm text-slate-500">Desglose para separar caja liberable, margen mejorable y margen expuesto. Son magnitudes orientativas y no aditivas.</p></div>
         <Badge className="border-emerald-400/20 bg-emerald-500/10 text-emerald-300">{result?.trust_layer?.confidence_level || 86}% confianza</Badge>
       </div>
       <div className="mt-5 grid gap-3 md:grid-cols-3">
@@ -1158,7 +1158,7 @@ function ExecutiveReport({ result, recommendations, summary, historyItem }: { re
           <div className="flex items-start justify-between gap-4">
             <div>
               <h2 className="text-2xl font-black">Cómo se calcula el valor económico</h2>
-              <p className="mt-2 text-sm text-slate-600">Desglose orientativo para diferenciar caja, margen y ventas protegidas. No es una promesa de resultado.</p>
+              <p className="mt-2 text-sm text-slate-600">Desglose orientativo para diferenciar caja, margen mejorable y margen expuesto. No es una promesa de resultado.</p>
             </div>
             <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">{result?.trust_layer?.confidence_level || 86}% confianza</Badge>
           </div>

@@ -35,12 +35,12 @@ ECONOMIC_CATEGORY_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         "can_sum_with": ["margin_improvement"],
     },
     "sales_protection": {
-        "economic_class": "REVENUE_AT_RISK",
-        "label": "Ventas expuestas",
+        "economic_class": "GROSS_MARGIN_AT_RISK",
+        "label": "Margen expuesto",
         "description": (
-            "Exposicion economica asociada a productos con demanda y stock bajo. "
-            "En v19 la cifra usa margen o beneficio bruto como proxy, no ingresos "
-            "totales demostrados."
+            "Exposicion estimada de margen bruto asociada a productos con demanda "
+            "y stock bajo. La cifra usa margen o beneficio bruto como proxy; no "
+            "representa ingresos o ventas totales demostradas."
         ),
         "is_stock": False,
         "is_flow": True,
@@ -94,16 +94,18 @@ def build_economic_value_summary(
     return {
         "display_total": display_total,
         "display_total_semantics": (
-            "Suma de magnitudes economicas heterogeneas solo para dimensionar el "
-            "valor identificado y priorizar decisiones; no es beneficio neto, "
-            "ingreso incremental ni caja realizada."
+            "Suma dimensional legacy de magnitudes economicas heterogeneas. Se "
+            "conserva por compatibilidad, pero no debe utilizarse como KPI hero ni "
+            "interpretarse como beneficio neto, ingreso incremental o caja realizada."
         ),
+        "display_total_role": "LEGACY_DIMENSIONAL_SUM",
+        "display_total_recommended_for_hero": False,
         "is_additive": False,
         "unit": "EUR",
         "categories": categories,
         "category_count": len(categories),
         "disclaimer": (
-            "Caja liberable, margen mejorable y ventas expuestas son categorias "
+            "Caja liberable, margen mejorable y margen expuesto son categorias "
             "economicas distintas. No deben interpretarse como beneficio contable agregado."
         ),
         "legacy_compatibility": {

@@ -95,7 +95,7 @@ class V20FoundationTests(unittest.TestCase):
         self.assertFalse(summary["is_additive"])
         self.assertEqual(summary["display_total"], 1750)
         classes = {category["economic_class"] for category in summary["categories"]}
-        self.assertEqual(classes, {"CASH_RELEASE", "MARGIN_OPPORTUNITY", "REVENUE_AT_RISK"})
+        self.assertEqual(classes, {"CASH_RELEASE", "MARGIN_OPPORTUNITY", "GROSS_MARGIN_AT_RISK"})
         self.assertIn("no deben interpretarse como beneficio", summary["disclaimer"].lower())
 
     def test_analysis_period_does_not_invent_dates(self):
@@ -193,6 +193,92 @@ class V20FoundationTests(unittest.TestCase):
         self.assertIsNone(payload["analysis_period"]["start_date"])
         self.assertFalse(payload["economic_value_summary"]["is_additive"])
         self.assertEqual(payload["analysis_snapshot"]["analysis_id"], payload["analysis_id"])
+
+    def test_sales_protection_is_gross_margin_at_risk(self):
+        summary = build_economic_value_summary(
+            recommendations=[{"category": "sales_protection", "economic_impact": 500}],
+            analysis_period={"days": 90},
+        )
+
+        category = summary["categories"][0]
+        self.assertEqual(category["economic_class"], "GROSS_MARGIN_AT_RISK")
+        self.assertEqual(category["label"], "Margen expuesto")
+        self.assertFalse(category["represents_revenue"])
+        self.assertTrue(category["represents_margin"])
+        self.assertFalse(summary["display_total_recommended_for_hero"])
+
+    def test_snapshot_metric_coverage_preserves_missing_metrics(self):
+        enriched = self._enriched()
+        period = {
+            "kind": "ASSUMED_WINDOW",
+            "start_date": None,
+            "end_date": None,
+            "days": 90,
+            "label": "Ventana asumida",
+            "confidence": 0.35,
+            "source": "TEST",
+        }
+        snapshot = build_analysis_snapshot(
+            analysis_id="missing-metrics",
+            analysis_created_at="2026-07-05T12:00:00Z",
+            analysis_period=period,
+            business_profile={"sector": "retail"},
+            summary={"products_count": 2},
+            economic_value_summary=build_economic_value_summary(
+                recommendations=[],
+                analysis_period=period,
+            ),
+            enriched=enriched,
+            recommendations=[],
+            column_mapping={
+                "sku": "sku",
+                "product_name": "producto",
+                "stock_units": "stock",
+                "units_sold": "ventas_90d",
+                "unit_cost": None,
+                "sale_price": None,
+                "revenue": None,
+            },
+            mapping_confidence={},
+            validation={"quality_score": 80, "quality_label": "Media", "missing_required_fields": []},
+            merge_summary=None,
+        )
+
+        coverage = snapshot["comparability_metadata"]["metric_coverage"]
+        self.assertEqual(coverage["stock_units"], 1.0)
+        self.assertEqual(coverage["units_sold"], 1.0)
+        self.assertEqual(coverage["revenue"], 0.0)
+        self.assertEqual(coverage["gross_margin_pct"], 0.0)
+        self.assertEqual(coverage["inventory_value"], 0.0)
+        self.assertIsNone(snapshot["product_metrics"][0]["metrics"]["revenue"])
+
+    def test_comparability_uses_real_catalog_size_when_snapshots_are_truncated(self):
+        baseline = self._snapshot(analysis_id="a1")
+        candidate = self._snapshot(analysis_id="a2")
+
+        baseline["product_count"] = 1000
+        candidate["product_count"] = 5000
+        baseline["product_metrics_truncated"] = True
+        candidate["product_metrics_truncated"] = True
+
+        result = compare_analysis_snapshots(baseline, candidate)
+
+        self.assertEqual(result["product_match_scope"], "SAMPLED")
+        self.assertEqual(result["catalog_size_baseline"], 1000)
+        self.assertEqual(result["catalog_size_candidate"], 5000)
+        self.assertEqual(result["catalog_delta_rate"], 0.8)
+        self.assertIn("product_metrics_truncated", result["warnings"])
+        self.assertNotEqual(result["status"], "COMPARABLE")
+
+    def test_full_snapshots_keep_full_product_match_scope(self):
+        result = compare_analysis_snapshots(
+            self._snapshot(analysis_id="a1"),
+            self._snapshot(analysis_id="a2"),
+        )
+
+        self.assertEqual(result["product_match_scope"], "FULL")
+        self.assertEqual(result["catalog_size_baseline"], 2)
+        self.assertEqual(result["catalog_size_candidate"], 2)
 
 
 if __name__ == "__main__":

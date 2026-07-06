@@ -250,7 +250,7 @@ def _build_analysis_response(
         "is_additive": False,
         "explanation": (
             "El valor económico identificado combina categorías heterogéneas: caja liberable, "
-            "margen mejorable y ventas expuestas. No es beneficio contable agregado ni impacto neto. "
+            "margen mejorable y margen bruto expuesto. No es beneficio contable agregado ni impacto neto. "
             "La caja liberable no debe interpretarse como beneficio, sino como liquidez potencial."
         ),
     }

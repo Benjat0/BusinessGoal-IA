@@ -17,6 +17,15 @@ def _round_number(value: Any, digits: int = 2) -> float:
         return 0.0
 
 
+def _optional_number(value: Any, *, available: bool, digits: int = 2) -> float | None:
+    if not available or value is None or pd.isna(value):
+        return None
+    try:
+        return round(float(value), digits)
+    except Exception:
+        return None
+
+
 def _product_ref(row: pd.Series) -> Dict[str, Any]:
     sku = row.get("sku")
     name = row.get("product_name")
@@ -89,6 +98,24 @@ def build_analysis_snapshot(
     validation: Dict[str, Any],
     merge_summary: Dict[str, Any] | None,
 ) -> Dict[str, Any]:
+    metric_availability = {
+        "stock_units": bool(column_mapping.get("stock_units")),
+        "units_sold": bool(column_mapping.get("units_sold")),
+        "revenue": bool(
+            column_mapping.get("revenue")
+            or (column_mapping.get("units_sold") and column_mapping.get("sale_price"))
+        ),
+        "gross_margin_pct": bool(column_mapping.get("unit_cost") and column_mapping.get("sale_price")),
+        "gross_profit_estimated": bool(
+            column_mapping.get("units_sold")
+            and column_mapping.get("unit_cost")
+            and column_mapping.get("sale_price")
+        ),
+        "stock_coverage_days": bool(column_mapping.get("stock_units") and column_mapping.get("units_sold")),
+        "stock_turnover_90d": bool(column_mapping.get("stock_units") and column_mapping.get("units_sold")),
+        "inventory_value": bool(column_mapping.get("stock_units") and column_mapping.get("unit_cost")),
+    }
+
     product_metrics: List[Dict[str, Any]] = []
     identity_warnings = 0
     for _, row in enriched.head(MAX_SNAPSHOT_PRODUCTS).iterrows():
@@ -99,14 +126,14 @@ def build_analysis_snapshot(
             "category": row.get("category") if pd.notna(row.get("category")) else None,
             "supplier": row.get("supplier") if pd.notna(row.get("supplier")) else None,
             "metrics": {
-                "stock_units": _round_number(row.get("stock_units_num")),
-                "units_sold": _round_number(row.get("units_sold_num")),
-                "revenue": _round_number(row.get("estimated_revenue")),
-                "gross_margin_pct": _round_number(row.get("gross_margin_pct")),
-                "gross_profit_estimated": _round_number(row.get("gross_profit_estimated")),
-                "stock_coverage_days": _round_number(row.get("stock_coverage_days")),
-                "stock_turnover_90d": _round_number(row.get("stock_turnover_90d"), 4),
-                "inventory_value": _round_number(row.get("inventory_value")),
+                "stock_units": _optional_number(row.get("stock_units_num"), available=metric_availability["stock_units"]),
+                "units_sold": _optional_number(row.get("units_sold_num"), available=metric_availability["units_sold"]),
+                "revenue": _optional_number(row.get("estimated_revenue"), available=metric_availability["revenue"]),
+                "gross_margin_pct": _optional_number(row.get("gross_margin_pct"), available=metric_availability["gross_margin_pct"]),
+                "gross_profit_estimated": _optional_number(row.get("gross_profit_estimated"), available=metric_availability["gross_profit_estimated"]),
+                "stock_coverage_days": _optional_number(row.get("stock_coverage_days"), available=metric_availability["stock_coverage_days"]),
+                "stock_turnover_90d": _optional_number(row.get("stock_turnover_90d"), available=metric_availability["stock_turnover_90d"], digits=4),
+                "inventory_value": _optional_number(row.get("inventory_value"), available=metric_availability["inventory_value"]),
             },
             "economic_status": _economic_status(row),
         })

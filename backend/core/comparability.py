@@ -64,10 +64,21 @@ def compare_analysis_snapshots(
     base_keys = _product_keys(baseline)
     candidate_keys = _product_keys(candidate)
     shared_products = len(base_keys & candidate_keys)
-    max_catalog = max(len(base_keys), len(candidate_keys), 1)
-    min_catalog = max(min(len(base_keys), len(candidate_keys)), 1)
-    product_match_rate = round(shared_products / max_catalog, 4)
-    retained_product_rate = round(shared_products / min_catalog, 4)
+
+    base_product_count = int(baseline.get("product_count") or len(base_keys))
+    candidate_product_count = int(candidate.get("product_count") or len(candidate_keys))
+    min_sample_catalog = max(min(len(base_keys), len(candidate_keys)), 1)
+
+    product_match_rate = round(shared_products / max(len(base_keys), len(candidate_keys), 1), 4)
+    retained_product_rate = round(shared_products / min_sample_catalog, 4)
+
+    base_truncated = bool(baseline.get("product_metrics_truncated"))
+    candidate_truncated = bool(candidate.get("product_metrics_truncated"))
+    product_match_scope = "SAMPLED" if base_truncated or candidate_truncated else "FULL"
+    if product_match_scope == "SAMPLED":
+        score -= 15
+        warnings.append("product_metrics_truncated")
+        warnings.append("product_match_rate_is_sampled")
 
     if not base_keys or not candidate_keys:
         score -= 45
@@ -79,7 +90,8 @@ def compare_analysis_snapshots(
         score -= 22
         warnings.append("product_match_rate_low")
 
-    catalog_delta_rate = round(abs(len(base_keys) - len(candidate_keys)) / max_catalog, 4)
+    max_catalog = max(base_product_count, candidate_product_count, 1)
+    catalog_delta_rate = round(abs(base_product_count - candidate_product_count) / max_catalog, 4)
     if catalog_delta_rate > 0.5:
         score -= 20
         warnings.append("catalog_size_changed_strongly")
@@ -96,6 +108,8 @@ def compare_analysis_snapshots(
         warnings.append("metric_coverage_partial")
 
     score = max(0, min(100, round(score)))
+    if product_match_scope == "SAMPLED":
+        score = min(score, 74)
     if score >= 75:
         status = "COMPARABLE"
     elif score >= 45:
@@ -110,6 +124,9 @@ def compare_analysis_snapshots(
         "shared_products": shared_products,
         "product_match_rate": product_match_rate,
         "retained_product_rate": retained_product_rate,
+        "product_match_scope": product_match_scope,
+        "catalog_size_baseline": base_product_count,
+        "catalog_size_candidate": candidate_product_count,
         "catalog_delta_rate": catalog_delta_rate,
         "metric_coverage": metric_coverage,
         "schema_overlap": round(schema_overlap, 4),
