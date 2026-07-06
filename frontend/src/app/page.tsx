@@ -37,6 +37,8 @@ type HistoryItem = {
   createdAt: string;
   fileNames: string[];
   potential: number;
+  economicAreaCount?: number;
+  hasAggregateEconomicValue?: boolean;
   opportunities: number;
   score: number;
   scoreAfter?: number;
@@ -80,7 +82,9 @@ const DEMO_HISTORY_ITEMS: HistoryItem[] = [
     id: "demo-2026-06-27",
     createdAt: "2026-06-27T09:35:00.000Z",
     fileNames: ["Inventario_Actual.csv", "Ventas_Mayo_2024.xlsx"],
-    potential: 32470,
+    potential: 0,
+    economicAreaCount: 3,
+    hasAggregateEconomicValue: false,
     opportunities: 8,
     score: 82,
     scoreAfter: 91,
@@ -91,7 +95,9 @@ const DEMO_HISTORY_ITEMS: HistoryItem[] = [
     id: "demo-2026-06-20",
     createdAt: "2026-06-20T11:10:00.000Z",
     fileNames: ["Productos_Stock_2024.xlsx"],
-    potential: 21800,
+    potential: 0,
+    economicAreaCount: 3,
+    hasAggregateEconomicValue: false,
     opportunities: 5,
     score: 78,
     scoreAfter: 86,
@@ -220,11 +226,11 @@ function exportRowsToCsv(
 
 function exportHistoryToCsv(history: HistoryItem[]) {
   if (typeof window === "undefined") return;
-  const header = ["Fecha", "Archivos", "Valor economico", "Decisiones", "Score", "Calidad"].map(csvSafe).join(",");
+  const header = ["Fecha", "Archivos", "Lectura economica", "Decisiones", "Score", "Calidad"].map(csvSafe).join(",");
   const body = history.map((item) => [
     item.createdAt,
     item.fileNames.join(" + "),
-    item.potential,
+    item.hasAggregateEconomicValue === false || item.economicAreaCount ? `${item.economicAreaCount || 0} áreas` : item.potential,
     item.opportunities,
     item.score,
     item.mergeQuality || "",
@@ -265,9 +271,18 @@ function categoryLabel(category?: string) {
   const map: Record<string, string> = {
     cash_release: "Inventario",
     margin_improvement: "Precios",
-    sales_protection: "Ventas",
+    sales_protection: "Disponibilidad",
   };
   return map[category || ""] || "Negocio";
+}
+
+function economicImpactLabel(category?: string) {
+  const map: Record<string, string> = {
+    cash_release: "Caja liberable",
+    margin_improvement: "Margen mejorable",
+    sales_protection: "Margen expuesto",
+  };
+  return map[category || ""] || "Magnitud económica estimada";
 }
 
 function fileLabel(role: UploadRole | string) {
@@ -283,13 +298,18 @@ function productIcon(index: number) {
 function getSummary(result: AnalyzeResponse | null) {
   const summary = result?.summary_kpis ?? {};
   const recs = result?.recommendations?.length ? result.recommendations : FALLBACK_RECOMMENDATIONS;
-  const canUseDisplayTotal = result?.economic_value_summary?.display_total_recommended_for_hero !== false;
-  const totalImpact =
-    (canUseDisplayTotal ? asNumber(result?.economic_value_summary?.display_total) : 0) ||
-    asNumber(summary.potential_recoverable_benefit) ||
-    recs.reduce((sum, rec) => sum + asNumber(rec.economic_impact), 0);
+  const economicSummary = result?.economic_value_summary;
+  const hasAggregateEconomicValue = economicSummary?.display_total_recommended_for_hero !== false;
+  const totalImpact = result
+    ? hasAggregateEconomicValue
+      ? asNumber(economicSummary?.display_total, asNumber(summary.potential_recoverable_benefit)) ||
+        recs.reduce((sum, rec) => sum + asNumber(rec.economic_impact), 0)
+      : 0
+    : 0;
   return {
-    potential: result ? totalImpact : 32470,
+    potential: totalImpact,
+    economicAreaCount: economicSummary?.category_count || 0,
+    hasAggregateEconomicValue,
     opportunities: result ? recs.length : 8,
     loss: result ? asNumber(summary.cash_release_potential) : 12300,
     critical: result ? asNumber(summary.products_without_sales) + asNumber(summary.high_stock_low_sales_products) : 14,
@@ -302,27 +322,6 @@ function getSummary(result: AnalyzeResponse | null) {
     inventoryValue: result ? asNumber(summary.total_inventory_value) : 0,
     grossProfit: result ? asNumber(summary.total_gross_profit_estimated) : 0,
   };
-}
-
-function Sparkline() {
-  return (
-    <svg viewBox="0 0 260 120" className="h-[115px] w-full max-w-[280px] overflow-visible">
-      <defs>
-        <linearGradient id="lineGlow" x1="0" x2="1" y1="0" y2="0">
-          <stop offset="0%" stopColor="#5B73F2" />
-          <stop offset="58%" stopColor="#2AC7B2" />
-          <stop offset="100%" stopColor="#A78BFA" />
-        </linearGradient>
-        <linearGradient id="areaGlow" x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0%" stopColor="#5B73F2" stopOpacity="0.18" />
-          <stop offset="100%" stopColor="#5B73F2" stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <path d="M8 105 C38 92,43 50,68 62 C90 73,92 35,114 44 C136 54,141 15,166 26 C190 37,192 54,214 33 C230 18,242 7,252 0 L252 120 L8 120 Z" fill="url(#areaGlow)" />
-      <path d="M8 105 C38 92,43 50,68 62 C90 73,92 35,114 44 C136 54,141 15,166 26 C190 37,192 54,214 33 C230 18,242 7,252 0" fill="none" stroke="url(#lineGlow)" strokeWidth="3" strokeLinecap="round" />
-      <circle cx="252" cy="0" r="5" fill="#5B73F2" />
-    </svg>
-  );
 }
 
 export default function Home() {
@@ -409,6 +408,11 @@ export default function Home() {
     setError(null);
   }
 
+  function openWizard() {
+    resetWizard();
+    setIsWizardOpen(true);
+  }
+
   async function inspectCurrentFiles() {
     setError(null);
     setIsInspecting(true);
@@ -440,7 +444,12 @@ export default function Home() {
         analysisId: response.analysis_id,
         createdAt: response.analysis_created_at,
         fileNames: Object.values(cleanFiles).filter(Boolean).map((file) => file!.name),
-        potential: asNumber(response.economic_value_summary?.display_total, asNumber(response.summary_kpis?.potential_recoverable_benefit)),
+        potential:
+          response.economic_value_summary?.display_total_recommended_for_hero === false
+            ? 0
+            : asNumber(response.economic_value_summary?.display_total, asNumber(response.summary_kpis?.potential_recoverable_benefit)),
+        economicAreaCount: response.economic_value_summary?.category_count || 0,
+        hasAggregateEconomicValue: response.economic_value_summary?.display_total_recommended_for_hero !== false,
         opportunities: response.recommendations?.length || 0,
         score: asNumber(response.summary_kpis?.business_score_current, 82),
         scoreAfter: asNumber(response.summary_kpis?.business_score_after_actions, 91),
@@ -470,7 +479,7 @@ export default function Home() {
       <AppShell
         activeTab={activeTab}
         onTabChange={setActiveTab}
-        onOpenWizard={() => { resetWizard(); setIsWizardOpen(true); }}
+        onOpenWizard={openWizard}
         analysisCreatedAt={result?.analysis_created_at}
         analysisContext={analysisContext}
         query={query}
@@ -484,13 +493,13 @@ export default function Home() {
               scenarios={scenarios}
               selectedScenario={selectedScenario}
               setSelectedScenario={setSelectedScenario}
-              setIsWizardOpen={setIsWizardOpen}
+              onOpenWizard={openWizard}
               setSelectedRecommendation={setSelectedRecommendation}
             />
           )}
         {activeTab === "decisions" && <DecisionsView recommendations={recommendations} setSelectedRecommendation={setSelectedRecommendation} />}
         {activeTab === "scenarios" && <ScenariosView scenarios={scenarios} selectedScenario={selectedScenario} setSelectedScenario={setSelectedScenario} />}
-        {activeTab === "data" && <DataView currentFiles={currentFiles} history={history} setIsWizardOpen={setIsWizardOpen} />}
+        {activeTab === "data" && <DataView currentFiles={currentFiles} history={history} onOpenWizard={openWizard} />}
         {activeTab === "products" && <ProductCatalogTable products={filteredProducts} result={result} />}
         {activeTab === "inventory" && <InventorySalesView mode="inventory" result={result} products={filteredProducts} />}
         {activeTab === "sales" && <InventorySalesView mode="sales" result={result} products={filteredProducts} />}
@@ -549,9 +558,8 @@ function DashboardView({ summary, result, recommendations, scenarios, selectedSc
               <p className="page-overline">{result?.economic_value_summary ? "Áreas económicas identificadas" : "Workspace económico"}</p>
               <h1 className="mt-4 text-4xl font-semibold tracking-normal text-[var(--text-primary)] sm:text-5xl">{result?.economic_value_summary ? `${result.economic_value_summary.category_count} áreas` : "Visión de decisión"}</h1>
               <p className="mt-3 max-w-xl text-sm leading-6 text-[var(--text-secondary)]">{result?.economic_value_summary ? result.economic_value_summary.categories.map((category) => category.label).join(" · ") : "Demo orientativa para explorar caja, margen y exposición económica."}</p>
-              <div className="mt-5 inline-flex items-center gap-2 rounded-lg border border-[rgba(42,199,178,0.28)] bg-[rgba(42,199,178,0.1)] px-3 py-2 text-sm font-medium text-[var(--value)]">{result?.economic_value_summary ? "Magnitudes separadas; no representan beneficio agregado" : "Comparación temporal disponible con dos análisis comparables"}</div>
+              <div className="mt-5 inline-flex items-center gap-2 rounded-lg border border-[rgba(42,199,178,0.28)] bg-[rgba(42,199,178,0.1)] px-3 py-2 text-sm font-medium text-[var(--value)]">{result?.economic_value_summary ? "Magnitudes separadas; no representan beneficio agregado" : "La evolución temporal aparecerá cuando existan dos análisis comparables"}</div>
             </div>
-            <div className="hidden w-[45%] items-end justify-end md:flex"><Sparkline /></div>
           </div>
         </Card>
         <Card className="p-6">
@@ -630,8 +638,8 @@ function Kpi({ title, value, meta, icon, tone }: { title: string; value: string 
 
 function TodayActions({ result, recommendations }: { result: AnalyzeResponse | null; recommendations: Recommendation[] }) {
   const actions = result?.today_actions?.length
-    ? result.today_actions.map((action) => ({ title: action.title, subtitle: action.reason, impact: action.impact, category: action.area, priority: action.priority }))
-    : recommendations.slice(0, 4).map((rec) => ({ title: rec.first_step || rec.title, subtitle: rec.what_happens, impact: rec.economic_impact, category: categoryLabel(rec.category), priority: rec.priority }));
+    ? result.today_actions.map((action) => ({ title: action.title, subtitle: action.reason, impact: action.impact, category: action.area, priority: action.priority, impactLabel: "Magnitud económica estimada" }))
+    : recommendations.slice(0, 4).map((rec) => ({ title: rec.first_step || rec.title, subtitle: rec.what_happens, impact: rec.economic_impact, category: categoryLabel(rec.category), priority: rec.priority, impactLabel: economicImpactLabel(rec.category) }));
   return (
     <Card>
       <div className="flex items-center justify-between"><div><h2 className="section-title">Qué deberías hacer hoy</h2><p className="text-sm text-[var(--text-secondary)]">Acciones priorizadas por impacto económico</p></div><Button variant="ghost" size="sm">Ver todas</Button></div>
@@ -640,7 +648,7 @@ function TodayActions({ result, recommendations }: { result: AnalyzeResponse | n
           <div key={`${action.title}-${index}`} className="grid grid-cols-[36px_1fr_auto] gap-3 py-4">
             <span className={cn("grid h-8 w-8 place-items-center rounded-full text-sm font-semibold text-white", index === 0 ? "bg-[var(--risk)]" : index === 1 ? "bg-[var(--signal)]" : index === 2 ? "bg-[var(--primary)]" : "bg-[var(--surface-elevated)]")}>{index + 1}</span>
             <div><p className="text-sm font-semibold text-[var(--text-primary)]">{action.title}</p><p className="mt-1 line-clamp-1 text-xs text-[var(--text-muted)]">{action.subtitle}</p></div>
-            <div className="text-right"><Badge variant="primary">{action.category}</Badge><p className="mt-1 text-sm font-semibold text-[var(--value)]">+ {formatCurrency(action.impact)}</p></div>
+            <div className="text-right"><Badge variant="primary">{action.category}</Badge><p className="mt-1 text-xs text-[var(--text-muted)]">{action.impactLabel}</p><p className="mt-0.5 text-sm font-semibold text-[var(--value)]">{formatCurrency(action.impact)}</p></div>
           </div>
         ))}
       </div>
@@ -660,7 +668,7 @@ function DecisionFeed({ recommendations, setSelectedRecommendation }: { recommen
                 <div className="flex flex-wrap gap-2"><Badge className={priorityClass(rec.priority)}>{priorityLabel(rec.priority)}</Badge><Badge variant="primary">{categoryLabel(rec.category)}</Badge>{rec.confidence_level ? <Badge variant="neutral">{formatNumber(rec.confidence_level)}% confianza</Badge> : null}</div>
                 <h3 className="mt-3 text-base font-semibold text-[var(--text-primary)]">{rec.title}</h3>
                 <p className="mt-1 max-w-2xl text-sm leading-6 text-[var(--text-secondary)]">{rec.what_happens}</p>
-                <p className="mt-2 text-sm font-semibold text-[var(--value)]">Impacto estimado + {formatCurrency(rec.economic_impact)}</p>
+                <p className="mt-2 text-sm font-semibold text-[var(--value)]">{economicImpactLabel(rec.category)} · {formatCurrency(rec.economic_impact)}</p>
               </div>
               <Button onClick={() => setSelectedRecommendation(rec)} className="shrink-0" variant="secondary" size="sm">Ver detalle</Button>
             </div>
@@ -685,7 +693,7 @@ function ScenarioSimulator({ scenarios, selectedScenario, setSelectedScenario }:
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between"><div><h2 className="section-title">Simulador de escenarios</h2><p className="mt-1 text-sm text-[var(--text-secondary)]">Estimación orientativa a 30 días. No representa una promesa de resultado.</p></div><div className="flex flex-wrap gap-2">{scenarios.scenarios.map((scenario) => <button key={scenario.id} onClick={() => setSelectedScenario(scenario.id)} className={cn("rounded-lg border px-3 py-2 text-xs font-semibold", selectedScenario === scenario.id ? "border-[rgba(91,115,242,0.48)] bg-[var(--selected)] text-[var(--text-primary)]" : "border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]")}>{scenario.label}</button>)}</div></div>
       <div className="mt-5 grid gap-4 lg:grid-cols-[.8fr_1.2fr]">
         <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-5"><p className="text-sm font-medium text-[var(--text-secondary)]">Impacto estimado 30 días</p><p className="mt-3 text-4xl font-semibold text-[var(--value)]">{formatCurrency(selected.total_impact_30d)}</p><p className="mt-3 text-sm text-[var(--text-muted)]">Score tras escenario: <span className="font-semibold text-[var(--text-primary)]">{selected.score_after_scenario}/100</span> · Confianza {selected.confidence}%</p></div>
-        <div className="grid gap-3 sm:grid-cols-3"><MiniScenario label="Caja liberada" value={selected.cash_released_30d} /><MiniScenario label="Mejora margen" value={selected.margin_gain_30d} /><MiniScenario label="Ventas protegidas" value={selected.sales_protected_30d} /></div>
+        <div className="grid gap-3 sm:grid-cols-3"><MiniScenario label="Caja liberada" value={selected.cash_released_30d} /><MiniScenario label="Mejora margen" value={selected.margin_gain_30d} /><MiniScenario label="Margen expuesto" value={selected.sales_protected_30d} /></div>
       </div>
       <ul className="mt-5 grid gap-2 text-sm text-[var(--text-secondary)] lg:grid-cols-2">{selected.assumptions.slice(0, 4).map((item) => <li key={item} className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2">{item}</li>)}</ul>
     </Card>
@@ -965,7 +973,7 @@ function AnalysisView({
   scenarios,
   selectedScenario,
   setSelectedScenario,
-  setIsWizardOpen,
+  onOpenWizard,
   setSelectedRecommendation,
 }: {
   result: AnalyzeResponse | null;
@@ -973,7 +981,7 @@ function AnalysisView({
   scenarios?: ScenarioSimulation;
   selectedScenario: string;
   setSelectedScenario: (id: string) => void;
-  setIsWizardOpen: (value: boolean) => void;
+  onOpenWizard: () => void;
   setSelectedRecommendation: (rec: Recommendation) => void;
 }) {
   return (
@@ -987,7 +995,7 @@ function AnalysisView({
             </p>
           </div>
 
-          <Button onClick={() => setIsWizardOpen(true)} variant="primary">
+          <Button onClick={onOpenWizard} variant="primary">
             Nuevo análisis
           </Button>
         </div>
@@ -1021,7 +1029,7 @@ function DecisionsView({ recommendations, setSelectedRecommendation }: { recomme
         <p className="page-overline">Decision Center</p>
         <h1 className="mt-2 text-2xl font-semibold text-[var(--text-primary)]">Decisiones</h1>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--text-secondary)]">
-          Vista transitoria de decisiones económicas detectadas. El Decision Center completo se construirá en v20.3 con estado, responsable, baseline y seguimiento.
+          Revisa las decisiones económicas priorizadas a partir del último análisis. Explora su impacto estimado y el contexto que ha llevado a BusinessGoal a detectarlas.
         </p>
       </Card>
       <DecisionFeed recommendations={recommendations} setSelectedRecommendation={setSelectedRecommendation} />
@@ -1036,7 +1044,7 @@ function ScenariosView({ scenarios, selectedScenario, setSelectedScenario }: { s
         <p className="page-overline">Scenario Lab</p>
         <h1 className="mt-2 text-2xl font-semibold text-[var(--text-primary)]">Escenarios</h1>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--text-secondary)]">
-          Comparación orientativa de escenarios generados por el motor actual. La edición de parámetros queda preparada para una fase posterior.
+          Compara alternativas orientativas del análisis activo antes de decidir. Cada escenario muestra impacto estimado, confianza y supuestos utilizados.
         </p>
       </Card>
       <ScenarioSimulator scenarios={scenarios} selectedScenario={selectedScenario} setSelectedScenario={setSelectedScenario} />
@@ -1044,15 +1052,21 @@ function ScenariosView({ scenarios, selectedScenario, setSelectedScenario }: { s
   );
 }
 
-function DataView({ currentFiles, history, setIsWizardOpen }: { currentFiles: [UploadRole, File][]; history: HistoryItem[]; setIsWizardOpen: (value: boolean) => void }) {
-  const latest = history[0];
+function DataView({ currentFiles, history, onOpenWizard }: { currentFiles: [UploadRole, File][]; history: HistoryItem[]; onOpenWizard: () => void }) {
+  const realHistory = history.filter((item) => !item.id.startsWith("demo"));
+  const latest = realHistory[0];
+  const hasRealData = Boolean(latest || currentFiles.length);
+  const connectedFiles = currentFiles.length
+    ? currentFiles.map(([role, file]) => ({ role, name: file.name, date: "Sesión actual", quality: latest?.mergeQuality || 0 }))
+    : latest?.fileNames.map((name, index) => ({ role: index === 0 ? "inventory" : "sales", name, date: dateLabel(latest.createdAt), quality: latest.mergeQuality || 0 })) || [];
+
   return (
     <div className="space-y-5">
-      <Card><div className="flex items-center justify-between gap-4"><div><h1 className="text-2xl font-semibold text-[var(--text-primary)]">Datos</h1><p className="mt-1 text-sm text-[var(--text-secondary)]">Carga, validación y estado de procesamiento de las fuentes usadas por BusinessGoal.</p></div><Button onClick={() => setIsWizardOpen(true)} variant="primary">Actualizar datos</Button></div></Card>
+      <Card><div className="flex items-center justify-between gap-4"><div><h1 className="text-2xl font-semibold text-[var(--text-primary)]">Datos</h1><p className="mt-1 text-sm text-[var(--text-secondary)]">Carga, validación y estado de procesamiento de las fuentes usadas por BusinessGoal.</p></div><Button onClick={onOpenWizard} variant="primary">Actualizar datos</Button></div></Card>
       <Card>
-        <div className="mb-5 flex items-center justify-between"><div><h2 className="section-title">Estado de datos conectados</h2><p className="text-sm text-[var(--text-secondary)]">Último análisis, calidad de unión y fuentes procesadas.</p></div><Badge variant="value">Operativo</Badge></div>
-        <div className="grid gap-4 md:grid-cols-3"><Kpi title="Calidad de datos" value={`${latest?.mergeQuality || 0}%`} meta="última inspección" icon="" tone="green" /><Kpi title="Archivos usados" value={latest?.fileNames?.length || currentFiles.length || 0} meta="fuentes del análisis" icon="" tone="blue" /><Kpi title="Historial" value={history.length} meta="análisis guardados" icon="" tone="amber" /></div>
-        <div className="mt-5 space-y-3">{(currentFiles.length ? currentFiles.map(([role, file]) => ({ role, name: file.name, date: "Sesión actual", quality: latest?.mergeQuality || 0 })) : latest?.fileNames.map((name, index) => ({ role: index === 0 ? "inventory" : "sales", name, date: dateLabel(latest.createdAt), quality: latest.mergeQuality || 0 })) || []).map((file) => <div key={`${file.role}-${file.name}`} className="grid gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4 md:grid-cols-[1fr_auto_auto_auto]"><div><p className="font-semibold text-[var(--text-primary)]">{fileLabel(file.role)}</p><p className="mt-1 text-xs text-[var(--text-muted)]">{file.name}</p></div><Badge variant="primary">{file.date}</Badge><Badge variant="value">Calidad {file.quality}%</Badge><Button onClick={() => setIsWizardOpen(true)} variant="secondary" size="sm">Reemplazar</Button></div>)}</div>
+        <div className="mb-5 flex items-center justify-between"><div><h2 className="section-title">Estado de datos conectados</h2><p className="text-sm text-[var(--text-secondary)]">Último análisis real, calidad de unión y fuentes procesadas.</p></div><Badge variant={hasRealData ? "value" : "neutral"}>{hasRealData ? "Operativo" : "Demo"}</Badge></div>
+        <div className="grid gap-4 md:grid-cols-3"><Kpi title="Calidad de datos" value={latest ? `${latest.mergeQuality || 0}%` : "—"} meta={latest ? "última inspección real" : "sin inspección real"} icon="" tone="green" /><Kpi title="Archivos usados" value={latest?.fileNames?.length || currentFiles.length || 0} meta={hasRealData ? "fuentes del análisis" : "sin fuentes reales"} icon="" tone="blue" /><Kpi title="Historial" value={realHistory.length} meta="análisis reales guardados" icon="" tone="amber" /></div>
+        {connectedFiles.length ? <div className="mt-5 space-y-3">{connectedFiles.map((file) => <div key={`${file.role}-${file.name}`} className="grid gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4 md:grid-cols-[1fr_auto_auto_auto]"><div><p className="font-semibold text-[var(--text-primary)]">{fileLabel(file.role)}</p><p className="mt-1 text-xs text-[var(--text-muted)]">{file.name}</p></div><Badge variant="primary">{file.date}</Badge><Badge variant={file.quality ? "value" : "neutral"}>{file.quality ? `Calidad ${file.quality}%` : "Calidad pendiente"}</Badge><Button onClick={onOpenWizard} variant="secondary" size="sm">Reemplazar</Button></div>)}</div> : <div className="mt-5"><EmptyState title="Modo demo" text="Todavía no hay fuentes reales conectadas. Actualiza los datos para construir el modelo económico de tu negocio." action={<Button onClick={onOpenWizard} variant="primary" size="sm">Conectar datos</Button>} /></div>}
       </Card>
     </div>
   );
@@ -1066,7 +1080,7 @@ function AIContextView({ result, recommendations }: { result: AnalyzeResponse | 
         <p className="page-overline">BusinessGoal IA</p>
         <h1 className="mt-2 text-2xl font-semibold text-[var(--text-primary)]">Contexto inteligente</h1>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--text-secondary)]">
-          Esta superficie prepara explicaciones contextuales sobre análisis, productos y decisiones. No hay chatbot ni generación de IA activa en v20.1.
+          BusinessGoal reúne aquí las explicaciones económicas más relevantes del análisis activo y las decisiones que requieren atención.
         </p>
       </Card>
       <div className="grid gap-5 lg:grid-cols-[1fr_1fr]">
@@ -1110,11 +1124,18 @@ function ExecutiveReport({ result, recommendations, summary, historyItem }: { re
     ? riskRecommendations
     : topRecommendations;
 
-  const trustComponents = result?.trust_layer?.components || [
-    { key: "cash", label: "Caja liberable", amount: summary.capital, description: "Capital inmovilizado en inventario con baja rotación." },
-    { key: "margin", label: "Margen mejorable", amount: Math.max(0, summary.grossProfit * 0.15), description: "Potencial por revisión selectiva de precio y coste." },
-    { key: "sales", label: "Ventas protegidas", amount: Math.max(0, summary.potential - summary.capital), description: "Impacto orientativo por evitar roturas de stock." },
-  ];
+  const trustComponents = result?.economic_value_summary?.categories?.length
+    ? result.economic_value_summary.categories.map((category) => ({
+        key: category.key,
+        label: category.label,
+        amount: category.value,
+        description: category.description,
+      }))
+    : result?.trust_layer?.components || [
+        { key: "cash", label: "Caja liberable", amount: summary.capital, description: "Capital inmovilizado en inventario con baja rotación." },
+        { key: "margin", label: "Margen mejorable", amount: 6750, description: "Potencial estimado por revisión selectiva de precio y coste." },
+        { key: "risk", label: "Margen expuesto", amount: 4200, description: "Margen bruto asociado a productos con demanda y riesgo de rotura." },
+      ];
 
   const executiveMessage = formatReportCurrencyText(
     result?.executive_summary?.message ||
@@ -1149,7 +1170,7 @@ function ExecutiveReport({ result, recommendations, summary, historyItem }: { re
         </section>
 
         <div className="report-metrics-grid grid gap-5 md:grid-cols-4">
-          <ReportMetric label="Valor económico" value={formatCurrency(summary.potential)} tone="green" />
+          <ReportMetric label={summary.hasAggregateEconomicValue ? "Valor económico" : "Áreas económicas"} value={summary.hasAggregateEconomicValue ? formatCurrency(summary.potential) : `${summary.economicAreaCount} áreas`} tone="green" />
           <ReportMetric label="Capital inmovilizado" value={formatCurrency(summary.capital)} tone="red" />
           <ReportMetric label="Business Score" value={`${summary.score}/100`} tone="blue" />
           <ReportMetric label="Acciones recomendadas" value={summary.actions} tone="amber" />
@@ -1194,7 +1215,7 @@ function ExecutiveReport({ result, recommendations, summary, historyItem }: { re
                     <h3 className="mt-2 text-lg font-black text-slate-950">{rec.title}</h3>
                     <p className="mt-2 text-sm leading-6 text-slate-600">{rec.recommended_action}</p>
                   </div>
-                  <p className="shrink-0 text-xl font-black text-emerald-600">+ {formatCurrency(rec.economic_impact)}</p>
+                  <div className="shrink-0 text-right"><p className="text-xs font-bold text-slate-500">{economicImpactLabel(rec.category)}</p><p className="mt-1 text-xl font-black text-emerald-600">{formatCurrency(rec.economic_impact)}</p></div>
                 </div>
               </div>
             ))}
@@ -1230,7 +1251,7 @@ function ExecutiveReport({ result, recommendations, summary, historyItem }: { re
 
         <section className="report-card report-keep rounded-[24px] border border-slate-200 bg-slate-50 p-5 text-slate-700">
           <p className="text-sm font-black text-slate-950">Nota metodológica</p>
-          <p className="mt-2 text-xs leading-5">Las cifras mostradas son estimaciones orientativas calculadas a partir de los datos analizados. Caja liberable, margen mejorable y ventas protegidas representan categorías económicas distintas y no constituyen una promesa de resultado.</p>
+          <p className="mt-2 text-xs leading-5">Las cifras mostradas son estimaciones orientativas calculadas a partir de los datos analizados. Caja liberable, margen mejorable y margen expuesto representan categorías económicas distintas, no son aditivas y no constituyen una promesa de resultado.</p>
         </section>
       </div>
     </div>
@@ -1259,13 +1280,13 @@ function HistoryView({ history, setResult, setActiveTab }: { history: HistoryIte
       <Card>
         <div className="overflow-x-auto">
           <Table className="min-w-[820px]">
-            <TableHead><TableRow><TableHeaderCell>Fecha</TableHeaderCell><TableHeaderCell>Archivos</TableHeaderCell><TableHeaderCell className="text-right">Valor económico</TableHeaderCell><TableHeaderCell className="text-right">Oportunidades</TableHeaderCell><TableHeaderCell className="text-right">Score</TableHeaderCell><TableHeaderCell className="text-right">Calidad</TableHeaderCell><TableHeaderCell>Acción</TableHeaderCell></TableRow></TableHead>
+            <TableHead><TableRow><TableHeaderCell>Fecha</TableHeaderCell><TableHeaderCell>Archivos</TableHeaderCell><TableHeaderCell className="text-right">Lectura económica</TableHeaderCell><TableHeaderCell className="text-right">Oportunidades</TableHeaderCell><TableHeaderCell className="text-right">Score</TableHeaderCell><TableHeaderCell className="text-right">Calidad</TableHeaderCell><TableHeaderCell>Acción</TableHeaderCell></TableRow></TableHead>
             <TableBody>
               {history.map((item) => (
                 <TableRow key={item.id}>
                   <TableCell>{dateLabel(item.createdAt)}</TableCell>
                   <TableCell>{item.fileNames.join(" + ")}</TableCell>
-                  <TableCell numeric className="font-semibold text-[var(--value)]">{formatCurrency(item.potential)}</TableCell>
+                  <TableCell numeric className="font-semibold text-[var(--value)]">{item.hasAggregateEconomicValue === false || item.economicAreaCount ? `${item.economicAreaCount || 0} áreas` : formatCurrency(item.potential)}</TableCell>
                   <TableCell numeric>{item.opportunities}</TableCell>
                   <TableCell numeric>{item.score}/100</TableCell>
                   <TableCell numeric>{item.mergeQuality || "-"}%</TableCell>
@@ -1289,7 +1310,8 @@ function RecommendationDrawer({ recommendation, onClose }: { recommendation: Rec
       onClose={onClose}
       eyebrow={<Badge className={priorityClass(recommendation.priority)}>{priorityLabel(recommendation.priority)}</Badge>}
     >
-      <p className="mt-2 text-3xl font-semibold text-[var(--value)]">+ {formatCurrency(recommendation.economic_impact)}</p>
+      <p className="mt-2 text-sm font-medium text-[var(--text-muted)]">{economicImpactLabel(recommendation.category)}</p>
+      <p className="mt-1 text-3xl font-semibold text-[var(--value)]">{formatCurrency(recommendation.economic_impact)}</p>
       <div className="mt-6 space-y-4">
         {[
           { title: "Qué ocurre", text: recommendation.what_happens },

@@ -136,7 +136,7 @@ export const PAGE_METADATA: Record<TabId, { title: string; description: string; 
   },
   ai: {
     title: "BusinessGoal IA",
-    description: "Contexto inteligente preparado para futuras explicaciones asistidas.",
+    description: "Explicaciones económicas y contexto del análisis activo.",
   },
   settings: {
     title: "Configuración",
