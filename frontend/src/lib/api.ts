@@ -1,23 +1,38 @@
 import type { AnalyzeResponse, BusinessProfile, InspectBatchResponse, InspectResponse, UploadRole } from "./types";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
+const NETWORK_ERROR_MESSAGE = "No se pudo conectar con BusinessGoal. Comprueba que el servicio de análisis está disponible y vuelve a intentarlo.";
+
+async function requestJson<T>(url: string, init: RequestInit, fallbackMessage: string): Promise<T> {
+  let response: Response;
+
+  try {
+    response = await fetch(url, init);
+  } catch {
+    throw new Error(NETWORK_ERROR_MESSAGE);
+  }
+
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => null);
+    throw new Error(errorBody?.detail || fallbackMessage);
+  }
+
+  return response.json();
+}
 
 export async function inspectFile(file: File, fileType?: string): Promise<InspectResponse> {
   const formData = new FormData();
   formData.append("file", file);
   if (fileType) formData.append("file_type", fileType);
 
-  const response = await fetch(`${API_BASE_URL}/inspect`, {
-    method: "POST",
-    body: formData,
-  });
-
-  if (!response.ok) {
-    const errorBody = await response.json().catch(() => null);
-    throw new Error(errorBody?.detail || "No se pudo inspeccionar el archivo.");
-  }
-
-  return response.json();
+  return requestJson<InspectResponse>(
+    `${API_BASE_URL}/inspect`,
+    {
+      method: "POST",
+      body: formData,
+    },
+    "No se pudo inspeccionar el archivo.",
+  );
 }
 
 export async function analyzeFile(file: File, mapping?: Record<string, string | null>, fileType = "combined", businessProfile?: BusinessProfile): Promise<AnalyzeResponse> {
@@ -31,17 +46,14 @@ export async function analyzeFile(file: File, mapping?: Record<string, string | 
     formData.append("business_profile_json", JSON.stringify(businessProfile));
   }
 
-  const response = await fetch(`${API_BASE_URL}/analyze`, {
-    method: "POST",
-    body: formData,
-  });
-
-  if (!response.ok) {
-    const errorBody = await response.json().catch(() => null);
-    throw new Error(errorBody?.detail || "No se pudo analizar el archivo.");
-  }
-
-  return response.json();
+  return requestJson<AnalyzeResponse>(
+    `${API_BASE_URL}/analyze`,
+    {
+      method: "POST",
+      body: formData,
+    },
+    "No se pudo analizar el archivo.",
+  );
 }
 
 const roleToFormKey: Record<UploadRole, string> = {
@@ -66,17 +78,14 @@ export async function inspectBatchFiles(files: BatchUploadPayload): Promise<Insp
     if (file) formData.append(roleToFormKey[role], file);
   });
 
-  const response = await fetch(`${API_BASE_URL}/inspect-batch`, {
-    method: "POST",
-    body: formData,
-  });
-
-  if (!response.ok) {
-    const errorBody = await response.json().catch(() => null);
-    throw new Error(errorBody?.detail || "No se pudieron inspeccionar los archivos.");
-  }
-
-  return response.json();
+  return requestJson<InspectBatchResponse>(
+    `${API_BASE_URL}/inspect-batch`,
+    {
+      method: "POST",
+      body: formData,
+    },
+    "No se pudieron inspeccionar los archivos.",
+  );
 }
 
 export async function analyzeBatchFiles(files: BatchUploadPayload, mappings?: BatchMappingPayload, businessProfile?: BusinessProfile): Promise<AnalyzeResponse> {
@@ -92,15 +101,12 @@ export async function analyzeBatchFiles(files: BatchUploadPayload, mappings?: Ba
     formData.append("business_profile_json", JSON.stringify(businessProfile));
   }
 
-  const response = await fetch(`${API_BASE_URL}/analyze-batch`, {
-    method: "POST",
-    body: formData,
-  });
-
-  if (!response.ok) {
-    const errorBody = await response.json().catch(() => null);
-    throw new Error(errorBody?.detail || "No se pudo generar el análisis multiarchivo.");
-  }
-
-  return response.json();
+  return requestJson<AnalyzeResponse>(
+    `${API_BASE_URL}/analyze-batch`,
+    {
+      method: "POST",
+      body: formData,
+    },
+    "No se pudo generar el análisis multiarchivo.",
+  );
 }
