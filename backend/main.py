@@ -11,6 +11,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 from core.analysis_period import build_analysis_period
+from core.analysis_comparison import build_analysis_comparison
 from core.analysis_snapshot import build_analysis_snapshot
 from core.business_profile import business_profile_options, parse_business_profile
 from core.economic_value import build_economic_value_summary
@@ -50,6 +51,20 @@ def health() -> Dict[str, str]:
         "status": "ok",
         "message": "BusinessGoal backend is running",
     }
+
+
+@app.post("/compare-analysis-snapshots")
+def compare_analysis_snapshots_endpoint(payload: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="El cuerpo de la petición debe ser un objeto JSON.")
+
+    try:
+        return build_analysis_comparison(
+            baseline_snapshot=payload.get("baseline_snapshot"),
+            candidate_snapshot=payload.get("candidate_snapshot"),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 def read_uploaded_file(file_name: str, content: bytes) -> pd.DataFrame:

@@ -297,6 +297,33 @@ export type ComparabilityResult = {
   explanation: string;
 };
 
+export type MetricChangeFormat = "currency" | "percent" | "integer" | "score" | string;
+
+export type MetricMovement = "UP" | "DOWN" | "FLAT" | string;
+
+export type MetricSignal = "POSITIVE" | "NEGATIVE" | "NEUTRAL" | string;
+
+export type AnalysisMetricChange = {
+  key: string;
+  label: string;
+  format: MetricChangeFormat;
+  direction: "HIGHER_IS_BETTER" | "LOWER_IS_BETTER" | "NEUTRAL" | string;
+  baseline_value: number;
+  candidate_value: number;
+  delta: number;
+  delta_pct?: number;
+  delta_unit?: "percentage_points" | string;
+  movement: MetricMovement;
+  signal: MetricSignal;
+};
+
+export type AnalysisComparison = ComparabilityResult & {
+  baseline_analysis_id: string;
+  candidate_analysis_id: string;
+  changes: AnalysisMetricChange[];
+  limit_applied: boolean;
+};
+
 export type Analysis = {
   analysis_id: string;
   analysis_created_at: string;

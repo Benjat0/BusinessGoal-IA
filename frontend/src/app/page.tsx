@@ -16,9 +16,15 @@ import {
   TableHeaderCell,
   TableRow,
 } from "@/components/ui";
-import { analyzeBatchFiles, inspectBatchFiles } from "@/lib/api";
+import {
+  DecisionCockpit,
+  type ComparisonUnavailableReason,
+} from "@/features/home/decision-cockpit";
+import { analyzeBatchFiles, compareAnalysisSnapshots, inspectBatchFiles } from "@/lib/api";
 import { cn } from "@/lib/ui";
 import type {
+  AnalysisComparison,
+  AnalysisSnapshot,
   AnalyzeResponse,
   BusinessProfile,
   InspectBatchResponse,
@@ -41,7 +47,6 @@ type HistoryItem = {
   hasAggregateEconomicValue?: boolean;
   opportunities: number;
   score: number;
-  scoreAfter?: number;
   mode?: string;
   mergeQuality?: number;
   reportSnapshot?: AnalyzeResponse;
@@ -87,7 +92,6 @@ const DEMO_HISTORY_ITEMS: HistoryItem[] = [
     hasAggregateEconomicValue: false,
     opportunities: 8,
     score: 82,
-    scoreAfter: 91,
     mode: "Inventario + ventas",
     mergeQuality: 92,
   },
@@ -100,7 +104,6 @@ const DEMO_HISTORY_ITEMS: HistoryItem[] = [
     hasAggregateEconomicValue: false,
     opportunities: 5,
     score: 78,
-    scoreAfter: 86,
     mode: "Archivo combinado",
     mergeQuality: 86,
   },
@@ -300,11 +303,8 @@ function getSummary(result: AnalyzeResponse | null) {
   const recs = result?.recommendations?.length ? result.recommendations : FALLBACK_RECOMMENDATIONS;
   const economicSummary = result?.economic_value_summary;
   const hasAggregateEconomicValue = economicSummary?.display_total_recommended_for_hero !== false;
-  const totalImpact = result
-    ? hasAggregateEconomicValue
-      ? asNumber(economicSummary?.display_total, asNumber(summary.potential_recoverable_benefit)) ||
-        recs.reduce((sum, rec) => sum + asNumber(rec.economic_impact), 0)
-      : 0
+  const totalImpact = result && hasAggregateEconomicValue
+    ? asNumber(economicSummary?.display_total)
     : 0;
   return {
     potential: totalImpact,
@@ -317,11 +317,48 @@ function getSummary(result: AnalyzeResponse | null) {
     capital: result ? asNumber(summary.cash_release_potential) : 27800,
     margin: result ? asNumber(summary.average_margin_pct) : 21.4,
     score: result ? asNumber(summary.business_score_current, 82) : 82,
-    scoreAfter: result ? asNumber(summary.business_score_after_actions, 91) : 91,
     products: result ? asNumber(summary.products_count) : 0,
     inventoryValue: result ? asNumber(summary.total_inventory_value) : 0,
     grossProfit: result ? asNumber(summary.total_gross_profit_estimated) : 0,
   };
+}
+
+function realHistoryItems(history: HistoryItem[]) {
+  return history
+    .filter((item) => !item.id.startsWith("demo") && item.reportSnapshot?.analysis_snapshot)
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+}
+
+function resolveComparisonBaseline(
+  result: AnalyzeResponse | null,
+  history: HistoryItem[],
+): { baselineSnapshot: AnalysisSnapshot | null; reason: ComparisonUnavailableReason | null } {
+  if (!result) return { baselineSnapshot: null, reason: "DEMO" };
+  const candidateSnapshot = result.analysis_snapshot;
+  if (!candidateSnapshot) return { baselineSnapshot: null, reason: "NO_SNAPSHOT" };
+
+  const activeId = result.analysis_id;
+  const realHistory = realHistoryItems(history);
+  const activeIndex = realHistory.findIndex((item) => item.analysisId === activeId || item.id === activeId);
+
+  if (activeIndex >= 0) {
+    const previous = realHistory
+      .slice(activeIndex + 1)
+      .find((item) => item.reportSnapshot?.analysis_snapshot?.analysis_id !== activeId);
+
+    if (previous?.reportSnapshot?.analysis_snapshot) {
+      return { baselineSnapshot: previous.reportSnapshot.analysis_snapshot, reason: null };
+    }
+
+    return { baselineSnapshot: null, reason: "FIRST_ANALYSIS" };
+  }
+
+  const latestDifferent = realHistory.find((item) => item.reportSnapshot?.analysis_snapshot?.analysis_id !== activeId);
+  if (latestDifferent?.reportSnapshot?.analysis_snapshot) {
+    return { baselineSnapshot: latestDifferent.reportSnapshot.analysis_snapshot, reason: null };
+  }
+
+  return { baselineSnapshot: null, reason: "FIRST_ANALYSIS" };
 }
 
 export default function Home() {
@@ -340,6 +377,10 @@ export default function Home() {
   const [history, setHistory] = useState<HistoryItem[]>(DEMO_HISTORY_ITEMS);
   const [selectedRecommendation, setSelectedRecommendation] = useState<Recommendation | null>(null);
   const [selectedScenario, setSelectedScenario] = useState<string>("recommended");
+  const [comparison, setComparison] = useState<AnalysisComparison | null>(null);
+  const [comparisonLoading, setComparisonLoading] = useState(false);
+  const [comparisonError, setComparisonError] = useState<string | null>(null);
+  const [comparisonUnavailableReason, setComparisonUnavailableReason] = useState<ComparisonUnavailableReason | null>("DEMO");
   const [query, setQuery] = useState("");
 
   useEffect(() => {
@@ -380,6 +421,50 @@ export default function Home() {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
+  useEffect(() => {
+    let cancelled = false;
+    const candidateSnapshot = result?.analysis_snapshot;
+    const { baselineSnapshot, reason } = resolveComparisonBaseline(result, history);
+
+    setComparison(null);
+    setComparisonError(null);
+    setComparisonUnavailableReason(reason);
+
+    if (!result || !candidateSnapshot || !baselineSnapshot) {
+      setComparisonLoading(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    if (baselineSnapshot.analysis_id === candidateSnapshot.analysis_id) {
+      setComparisonLoading(false);
+      setComparisonUnavailableReason("FIRST_ANALYSIS");
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setComparisonLoading(true);
+    compareAnalysisSnapshots(baselineSnapshot, candidateSnapshot)
+      .then((response) => {
+        if (cancelled) return;
+        setComparison(response);
+        setComparisonUnavailableReason(null);
+      })
+      .catch((exc) => {
+        if (cancelled) return;
+        setComparisonError(exc instanceof Error ? exc.message : "No se pudo comparar el análisis activo.");
+      })
+      .finally(() => {
+        if (!cancelled) setComparisonLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [result, history]);
+
   const summary = useMemo(() => getSummary(result), [result]);
   const recommendations = result?.recommendations?.length ? result.recommendations : FALLBACK_RECOMMENDATIONS;
   const scenarios = result?.scenario_simulation;
@@ -389,7 +474,9 @@ export default function Home() {
     return String(p.product_name || p.producto || p.sku || "").toLowerCase().includes(query.toLowerCase());
   });
   const currentFiles = useMemo(() => Object.entries(files).filter(([, file]) => Boolean(file)) as [UploadRole, File][], [files]);
-  const activeHistory = history[0];
+  const activeHistory = result?.analysis_id
+    ? history.find((item) => item.analysisId === result.analysis_id || item.id === result.analysis_id)
+    : undefined;
 
   function showToast(type: Toast extends infer T ? T extends { type: infer U } ? U : never : never, message: string) {
     setToast({ type: type as "success" | "error" | "info", message });
@@ -447,12 +534,11 @@ export default function Home() {
         potential:
           response.economic_value_summary?.display_total_recommended_for_hero === false
             ? 0
-            : asNumber(response.economic_value_summary?.display_total, asNumber(response.summary_kpis?.potential_recoverable_benefit)),
+            : asNumber(response.economic_value_summary?.display_total),
         economicAreaCount: response.economic_value_summary?.category_count || 0,
         hasAggregateEconomicValue: response.economic_value_summary?.display_total_recommended_for_hero !== false,
         opportunities: response.recommendations?.length || 0,
         score: asNumber(response.summary_kpis?.business_score_current, 82),
-        scoreAfter: asNumber(response.summary_kpis?.business_score_after_actions, 91),
         mode: uploadMode === "combined" ? "Archivo combinado" : "Inventario + ventas",
         mergeQuality: asNumber(response.merge_summary?.merge_quality_score, response.file_validation?.quality_score || 0),
         reportSnapshot: response,
@@ -485,7 +571,20 @@ export default function Home() {
         query={query}
         onQueryChange={setQuery}
       >
-        {activeTab === "home" && <DashboardView summary={summary} result={result} recommendations={recommendations} scenarios={scenarios} selectedScenario={selectedScenario} setSelectedScenario={setSelectedScenario} setSelectedRecommendation={setSelectedRecommendation} setActiveTab={setActiveTab} history={history} currentFiles={currentFiles} products={filteredProducts} />}
+        {activeTab === "home" && (
+          <DecisionCockpit
+            result={result}
+            recommendations={recommendations}
+            comparison={comparison}
+            comparisonLoading={comparisonLoading}
+            comparisonError={comparisonError}
+            comparisonUnavailableReason={comparisonUnavailableReason}
+            onOpenWizard={openWizard}
+            onSelectRecommendation={setSelectedRecommendation}
+            onGoToDecisions={() => setActiveTab("decisions")}
+            onGoToAnalysis={() => setActiveTab("analysis")}
+          />
+        )}
         {activeTab === "analysis" && (
             <AnalysisView
               result={result}
@@ -536,124 +635,10 @@ export default function Home() {
   );
 }
 
-function DashboardView({ summary, result, recommendations, scenarios, selectedScenario, setSelectedScenario, setSelectedRecommendation, setActiveTab, history, currentFiles, products }: {
-  summary: ReturnType<typeof getSummary>;
-  result: AnalyzeResponse | null;
-  recommendations: Recommendation[];
-  scenarios?: ScenarioSimulation;
-  selectedScenario: string;
-  setSelectedScenario: (id: string) => void;
-  setSelectedRecommendation: (rec: Recommendation) => void;
-  setActiveTab: (tab: TabId) => void;
-  history: HistoryItem[];
-  currentFiles: [UploadRole, File][];
-  products: ProductRow[];
-}) {
-  return (
-    <div className="space-y-5">
-      <div className="grid gap-5 lg:grid-cols-[1.25fr_.75fr_.75fr]">
-        <Card variant="elevated" className="overflow-hidden p-6">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <p className="page-overline">{result?.economic_value_summary ? "Áreas económicas identificadas" : "Workspace económico"}</p>
-              <h1 className="mt-4 text-4xl font-semibold tracking-normal text-[var(--text-primary)] sm:text-5xl">{result?.economic_value_summary ? `${result.economic_value_summary.category_count} áreas` : "Visión de decisión"}</h1>
-              <p className="mt-3 max-w-xl text-sm leading-6 text-[var(--text-secondary)]">{result?.economic_value_summary ? result.economic_value_summary.categories.map((category) => category.label).join(" · ") : "Demo orientativa para explorar caja, margen y exposición económica."}</p>
-              <div className="mt-5 inline-flex items-center gap-2 rounded-lg border border-[rgba(42,199,178,0.28)] bg-[rgba(42,199,178,0.1)] px-3 py-2 text-sm font-medium text-[var(--value)]">{result?.economic_value_summary ? "Magnitudes separadas; no representan beneficio agregado" : "La evolución temporal aparecerá cuando existan dos análisis comparables"}</div>
-            </div>
-          </div>
-        </Card>
-        <Card className="p-6">
-          <p className="text-sm font-medium text-[var(--text-secondary)]">Business Score</p>
-          <div className="mt-6 flex items-end gap-1"><span className="text-5xl font-semibold text-[var(--text-primary)]">{summary.score}</span><span className="pb-2 text-xl font-semibold text-[var(--primary-soft)]">/100</span></div>
-          <div className="mt-6 h-2 rounded-full bg-[var(--surface-2)]"><div className="h-2 rounded-full bg-[var(--primary)]" style={{ width: `${Math.min(100, summary.score)}%` }} /></div>
-          <p className="mt-5 text-sm text-[var(--text-secondary)]"><span className="text-[var(--value)]">●</span> Puede subir a {summary.scoreAfter}/100 aplicando las recomendaciones.</p>
-        </Card>
-        <Card className="p-6">
-          <div className="flex items-center gap-2"><p className="text-sm font-semibold text-[var(--text-primary)]">BusinessGoal IA</p><Badge variant="ai">IA</Badge></div>
-          <p className="mt-5 text-sm leading-6 text-[var(--text-secondary)]">{result?.executive_summary?.ai_insight || "Genera un análisis para ver la explicación contextual principal preparada por el motor económico."}</p>
-          <Button onClick={() => setActiveTab("reports")} className="mt-5" variant="secondary" size="sm">Ver informe ejecutivo</Button>
-        </Card>
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
-        <Kpi title="Decisiones detectadas" value={summary.opportunities} meta="recomendaciones agrupadas" icon="" tone="blue" />
-        <Kpi title="Riesgo económico estimado" value={formatCurrency(summary.loss)} meta="coste o exposición detectada" icon="⊕" tone="red" />
-        <Kpi title="Productos críticos" value={summary.critical} meta="requieren revisión" icon="" tone="blue" />
-        <Kpi title="Acciones recomendadas" value={summary.actions} meta="con impacto directo" icon="" tone="amber" />
-        <Kpi title="Capital inmovilizado" value={formatCurrency(summary.capital)} meta="stock reducible" icon="▥" tone="red" />
-        <Kpi title="Margen medio" value={`${formatNumber(summary.margin, 1)}%`} meta="vs objetivo" icon="%" tone="green" />
-      </div>
-
-      <PotentialBreakdown result={result} summary={summary} />
-
-      <div className="grid gap-5 xl:grid-cols-[1fr_1fr]">
-        <TodayActions result={result} recommendations={recommendations} />
-        <DecisionFeed recommendations={recommendations} setSelectedRecommendation={setSelectedRecommendation} />
-      </div>
-
-      <ScenarioSimulator scenarios={scenarios} selectedScenario={selectedScenario} setSelectedScenario={setSelectedScenario} />
-
-      <div className="grid gap-5 xl:grid-cols-[.85fr_1.65fr]">
-        <ConnectedData currentFiles={currentFiles} history={history} />
-        <ProductsTable products={products} compact />
-      </div>
-    </div>
-  );
-}
-
-
-function PotentialBreakdown({ result, summary }: { result: AnalyzeResponse | null; summary: ReturnType<typeof getSummary> }) {
-  const components = result?.economic_value_summary?.categories?.length
-    ? result.economic_value_summary.categories.map((category) => ({
-        key: category.key,
-        label: category.label,
-        amount: category.value,
-        description: category.description,
-      }))
-    : result?.trust_layer?.components?.length
-    ? result.trust_layer.components
-    : [
-        { key: "cash", label: "Caja liberable", amount: summary.capital, description: "Stock de baja rotación que podría reducirse con acciones comerciales." },
-        { key: "risk", label: "Riesgo económico", amount: summary.loss, description: "Exposición estimada por inventario parado, sobrecostes o ventas no capturadas." },
-        { key: "margin", label: "Margen mejorable", amount: Math.max(0, summary.potential - summary.capital - summary.loss), description: "Potencial por ajustes de precio, coste o mix de productos." },
-      ];
-  return (
-    <Card className="p-5">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <div><h2 className="section-title">Cómo se explica el valor económico</h2><p className="mt-1 text-sm text-[var(--text-secondary)]">Desglose para separar caja liberable, margen mejorable y margen expuesto. Son magnitudes orientativas y no aditivas.</p></div>
-        <Badge variant="value">{result?.trust_layer?.confidence_level || 86}% confianza</Badge>
-      </div>
-      <div className="mt-5 grid gap-3 md:grid-cols-3">
-        {components.slice(0, 3).map((component) => <div key={component.key} className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4"><p className="text-xs font-medium text-[var(--text-muted)]">{component.label}</p><p className="mt-2 text-2xl font-semibold text-[var(--text-primary)]">{formatCurrency(component.amount)}</p><p className="mt-2 line-clamp-2 text-xs leading-5 text-[var(--text-muted)]">{component.description}</p></div>)}
-      </div>
-    </Card>
-  );
-}
-
 function Kpi({ title, value, meta, icon, tone }: { title: string; value: string | number; meta: string; icon: string; tone: "blue" | "green" | "amber" | "red" }) {
   void icon;
   const tones = { blue: "primary", green: "value", amber: "signal", red: "risk" } as const;
   return <Metric label={title} value={value} supporting={meta} tone={tones[tone]} />;
-}
-
-function TodayActions({ result, recommendations }: { result: AnalyzeResponse | null; recommendations: Recommendation[] }) {
-  const actions = result?.today_actions?.length
-    ? result.today_actions.map((action) => ({ title: action.title, subtitle: action.reason, impact: action.impact, category: action.area, priority: action.priority, impactLabel: "Magnitud económica estimada" }))
-    : recommendations.slice(0, 4).map((rec) => ({ title: rec.first_step || rec.title, subtitle: rec.what_happens, impact: rec.economic_impact, category: categoryLabel(rec.category), priority: rec.priority, impactLabel: economicImpactLabel(rec.category) }));
-  return (
-    <Card>
-      <div className="flex items-center justify-between"><div><h2 className="section-title">Qué deberías hacer hoy</h2><p className="text-sm text-[var(--text-secondary)]">Acciones priorizadas por impacto económico</p></div><Button variant="ghost" size="sm">Ver todas</Button></div>
-      <div className="mt-5 divide-y divide-[var(--border)]">
-        {actions.slice(0, 4).map((action, index) => (
-          <div key={`${action.title}-${index}`} className="grid grid-cols-[36px_1fr_auto] gap-3 py-4">
-            <span className={cn("grid h-8 w-8 place-items-center rounded-full text-sm font-semibold text-white", index === 0 ? "bg-[var(--risk)]" : index === 1 ? "bg-[var(--signal)]" : index === 2 ? "bg-[var(--primary)]" : "bg-[var(--surface-elevated)]")}>{index + 1}</span>
-            <div><p className="text-sm font-semibold text-[var(--text-primary)]">{action.title}</p><p className="mt-1 line-clamp-1 text-xs text-[var(--text-muted)]">{action.subtitle}</p></div>
-            <div className="text-right"><Badge variant="primary">{action.category}</Badge><p className="mt-1 text-xs text-[var(--text-muted)]">{action.impactLabel}</p><p className="mt-0.5 text-sm font-semibold text-[var(--value)]">{formatCurrency(action.impact)}</p></div>
-          </div>
-        ))}
-      </div>
-    </Card>
-  );
 }
 
 function DecisionFeed({ recommendations, setSelectedRecommendation }: { recommendations: Recommendation[]; setSelectedRecommendation: (rec: Recommendation) => void }) {
@@ -704,19 +689,6 @@ function MiniScenario({ label, value }: { label: string; value: number }) {
   return <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4"><p className="text-xs font-medium text-[var(--text-muted)]">{label}</p><p className="mt-2 text-xl font-semibold text-[var(--text-primary)]">{formatCurrency(value)}</p></div>;
 }
 
-function ConnectedData({ currentFiles, history }: { currentFiles: [UploadRole, File][]; history: HistoryItem[] }) {
-  const filesToShow = currentFiles.length ? currentFiles : [];
-  return (
-    <Card>
-      <div className="flex items-center justify-between"><h2 className="section-title">Datos conectados</h2><Badge variant="value">Operativo</Badge></div>
-      <div className="mt-4 space-y-3">
-        {filesToShow.length ? filesToShow.map(([role, file]) => <div key={role} className="flex items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-4 py-3"><div><p className="text-sm font-semibold text-[var(--text-primary)]">{fileLabel(role)}</p><p className="text-xs text-[var(--text-muted)]">{file.name}</p></div><Badge variant="value">Procesado</Badge></div>) : history.slice(0, 4).map((item) => <div key={item.id} className="flex items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-4 py-3"><div><p className="text-sm font-semibold text-[var(--text-primary)]">{item.fileNames[0]}</p><p className="text-xs text-[var(--text-muted)]">{dateLabel(item.createdAt)}</p></div><Badge variant="neutral">{item.mergeQuality || 86}% calidad</Badge></div>)}
-      </div>
-    </Card>
-  );
-}
-
-
 function riskTone(value: string) {
   const normalized = value.toLowerCase();
   if (normalized.includes("alto") || normalized.includes("crítico")) return "border-[rgba(244,113,127,0.38)] bg-[rgba(244,113,127,0.12)] text-[var(--risk)]";
@@ -750,10 +722,6 @@ function productRevenue(row: ProductRow) {
 
 function coverageDays(row: ProductRow) {
   return asNumber(row.stock_coverage_days || row.dias_cobertura || row.coverage_days || 0);
-}
-
-function ProductsTable({ products, compact = false }: { products: ProductRow[]; compact?: boolean }) {
-  return <InventoryTable products={products} compact={compact} />;
 }
 
 function ProductCatalogTable({ products, result }: { products: ProductRow[]; result: AnalyzeResponse | null }) {
@@ -828,7 +796,7 @@ function SalesTable({ products, result }: { products: ProductRow[]; result: Anal
     <div className="space-y-5">
       <Card>
         <h1 className="text-2xl font-semibold text-[var(--text-primary)]">Ventas</h1>
-        <p className="mt-1 text-sm text-[var(--text-secondary)]">Demanda reciente, ingresos estimados, margen generado y ventas protegidas.</p>
+        <p className="mt-1 text-sm text-[var(--text-secondary)]">Demanda reciente, ingresos estimados, margen generado y exposición por disponibilidad.</p>
       </Card>
       <Card>
         <div className="mb-4 flex items-center justify-between"><div><h2 className="section-title">Rendimiento de ventas</h2><p className="text-sm text-[var(--text-secondary)]">Productos ordenados para detectar demanda, margen y riesgo de rotura.</p></div><Button onClick={() => exportRowsToCsv("businessgoal_ventas.csv", [

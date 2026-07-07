@@ -1,4 +1,12 @@
-import type { AnalyzeResponse, BusinessProfile, InspectBatchResponse, InspectResponse, UploadRole } from "./types";
+import type {
+  AnalysisComparison,
+  AnalysisSnapshot,
+  AnalyzeResponse,
+  BusinessProfile,
+  InspectBatchResponse,
+  InspectResponse,
+  UploadRole,
+} from "./types";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
 const NETWORK_ERROR_MESSAGE = "No se pudo conectar con BusinessGoal. Comprueba que el servicio de análisis está disponible y vuelve a intentarlo.";
@@ -108,5 +116,23 @@ export async function analyzeBatchFiles(files: BatchUploadPayload, mappings?: Ba
       body: formData,
     },
     "No se pudo generar el análisis multiarchivo.",
+  );
+}
+
+export async function compareAnalysisSnapshots(
+  baselineSnapshot: AnalysisSnapshot,
+  candidateSnapshot: AnalysisSnapshot,
+): Promise<AnalysisComparison> {
+  return requestJson<AnalysisComparison>(
+    `${API_BASE_URL}/compare-analysis-snapshots`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        baseline_snapshot: baselineSnapshot,
+        candidate_snapshot: candidateSnapshot,
+      }),
+    },
+    "No se pudo comparar el análisis activo con el histórico.",
   );
 }
