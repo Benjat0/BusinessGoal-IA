@@ -97,26 +97,56 @@ def _sum_impact(recommendations: List[Dict[str, Any]], *, category: str | None =
 
 
 def _build_business_status(summary: Dict[str, Any], recommendations: List[Dict[str, Any]]) -> Dict[str, Any]:
+    # v20 economic classes are not additive; status is based on independent
+    # operational signals, never on the heterogeneous legacy impact sum.
     high_priority = sum(1 for rec in recommendations if rec.get("priority") == "high")
-    total_impact = _sum_impact(recommendations)
+    stockout_risks = sum(1 for rec in recommendations if rec.get("type") == "stockout_risk")
+    dead_stock = sum(1 for rec in recommendations if rec.get("type") == "dead_stock")
+    excess_stock = sum(1 for rec in recommendations if rec.get("type") == "excess_stock")
+    low_margin = sum(1 for rec in recommendations if rec.get("type") == "low_margin_high_sales")
+    cash_release = float(summary.get("cash_release_potential", 0) or 0)
+    inventory_value = float(summary.get("total_inventory_value", 0) or 0)
+    capital_pressure = (cash_release / inventory_value) if inventory_value > 0 else 0
+    recommendation_count = len(recommendations)
 
-    if high_priority >= 5 or total_impact > summary.get("total_inventory_value", 0) * 0.6:
+    if high_priority >= 5 or capital_pressure >= 0.6 or (stockout_risks >= 3 and high_priority >= 2):
         status = "Atención prioritaria"
         tone = "warning"
-        message = "Hay oportunidades relevantes para liberar caja y corregir riesgos operativos. Conviene actuar primero sobre las alertas de mayor impacto."
-    elif high_priority > 0:
+        if capital_pressure >= 0.6:
+            message = "El análisis activo muestra una presión relevante de capital en inventario. Conviene priorizar las decisiones asociadas a stock y rotación."
+        elif stockout_risks >= 3:
+            message = "Se observan riesgos operativos asociados a disponibilidad en productos con demanda."
+        else:
+            message = "El análisis activo concentra varias señales económicas y operativas que requieren priorización."
+    elif high_priority > 0 or capital_pressure >= 0.25 or recommendation_count > 0:
         status = "Mejora disponible"
         tone = "info"
-        message = "El negocio muestra oportunidades claras de optimización. Prioriza las acciones con mayor impacto económico."
+        if low_margin > 0:
+            message = "Existen oportunidades de revisión de margen en productos con actividad comercial."
+        elif stockout_risks > 0:
+            message = "Se observan señales de disponibilidad que conviene revisar antes de tomar decisiones operativas."
+        elif dead_stock > 0 or excess_stock > 0 or capital_pressure >= 0.25:
+            message = "El análisis activo identifica presión de inventario y rotación que puede revisarse de forma priorizada."
+        else:
+            message = "El análisis activo muestra oportunidades de mejora que conviene revisar por prioridad."
     else:
         status = "Situación controlada"
         tone = "positive"
-        message = "No se detectan riesgos críticos con los datos disponibles, aunque conviene revisar oportunidades de margen y rotación."
+        message = "No se observan alertas económicas u operativas relevantes con los datos analizados."
 
     return {
         "status": status,
         "tone": tone,
         "message": message,
+        "signals": {
+            "high_priority_count": high_priority,
+            "capital_pressure_pct": round(capital_pressure * 100, 2),
+            "stockout_risk_count": stockout_risks,
+            "dead_stock_count": dead_stock,
+            "excess_stock_count": excess_stock,
+            "low_margin_high_sales_count": low_margin,
+            "recommendation_count": recommendation_count,
+        },
     }
 
 
