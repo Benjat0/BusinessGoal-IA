@@ -72,6 +72,20 @@ function formatNumber(value?: number | string, decimals = 0) {
   }).format(Number.isFinite(numeric) ? numeric : 0);
 }
 
+function formatDateLabel(date?: string | null) {
+  if (!date) return "—";
+  try {
+    return new Intl.DateTimeFormat("es-ES", {
+      day: "2-digit",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(new Date(date));
+  } catch {
+    return "—";
+  }
+}
+
 function priorityLabel(priority: string) {
   if (priority === "high") return "Alta prioridad";
   if (priority === "medium") return "Media prioridad";
@@ -92,6 +106,15 @@ function recommendationCategoryLabel(category?: string) {
     sales_protection: "Margen expuesto",
   };
   return map[category || ""] || "Decisión económica";
+}
+
+function economicMagnitudeLabel(category?: string) {
+  const map: Record<string, string> = {
+    cash_release: "Caja liberable",
+    margin_improvement: "Margen mejorable",
+    sales_protection: "Margen expuesto",
+  };
+  return map[category || ""] || "Magnitud económica estimada";
 }
 
 function exposureTone(category: Pick<EconomicValueCategory, "economic_class"> | { economic_class: string }) {
@@ -129,6 +152,25 @@ function comparisonBadge(comparison: AnalysisComparison) {
   return { label: "Comparable", variant: "value" as const };
 }
 
+function safeComparisonErrorDetail(error: string | null) {
+  if (!error) return null;
+  const lower = error.toLowerCase();
+  if (lower.includes("failed to fetch") || lower.includes("stack") || lower.includes("traceback")) return null;
+  return error;
+}
+
+function statusToneClass(tone?: string) {
+  if (tone === "positive") return "text-[var(--value)]";
+  if (tone === "warning") return "text-[var(--signal)]";
+  return "text-[var(--primary-soft)]";
+}
+
+function statusBadgeVariant(tone?: string) {
+  if (tone === "positive") return "value" as const;
+  if (tone === "warning") return "signal" as const;
+  return "primary" as const;
+}
+
 export function DecisionCockpit({
   result,
   recommendations,
@@ -143,17 +185,22 @@ export function DecisionCockpit({
 }: DecisionCockpitProps) {
   const isDemo = !result;
   const score = result ? asNumber(result.summary_kpis?.business_score_current) : 82;
-  const exposureCategories = result?.economic_value_summary?.categories?.length
-    ? result.economic_value_summary.categories
+  const exposureCategories = result
+    ? result.economic_value_summary?.categories ?? []
     : DEMO_EXPOSURE;
   const topRecommendations = recommendations.slice(0, 3);
   const quality = result
     ? asNumber(result.merge_summary?.merge_quality_score) ?? asNumber(result.file_validation?.quality_score)
     : null;
+  const fileQuality = result ? asNumber(result.file_validation?.quality_score) : null;
+  const mergeQuality = result ? asNumber(result.merge_summary?.merge_quality_score) : null;
   const productsCount = result ? asNumber(result.summary_kpis?.products_count) : null;
-  const statusMessage = result?.business_status?.message || (isDemo
+  const businessStatus = result?.business_status;
+  const statusText = isDemo ? "Lectura de ejemplo" : businessStatus?.status || "Análisis activo";
+  const statusMessage = businessStatus?.message || (isDemo
     ? "Vista demo con datos de ejemplo para explorar la lectura ejecutiva."
     : "El análisis activo concentra las prioridades económicas detectadas.");
+  const statusTone = isDemo ? "info" : businessStatus?.tone;
 
   return (
     <div className="space-y-5">
@@ -162,11 +209,12 @@ export function DecisionCockpit({
           <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <div className="flex flex-wrap items-center gap-2">
-                <p className="page-overline">Business Situation</p>
+                <p className="page-overline">Situación del negocio</p>
                 <Badge variant={isDemo ? "neutral" : "value"}>{isDemo ? "Vista demo" : "Análisis activo"}</Badge>
+                <Badge variant={statusBadgeVariant(statusTone)}>{statusText}</Badge>
               </div>
-              <h1 className="mt-3 text-3xl font-semibold tracking-normal text-[var(--text-primary)] sm:text-4xl">
-                Decision Cockpit
+              <h1 className={cn("mt-3 text-3xl font-semibold tracking-normal sm:text-4xl", statusToneClass(statusTone))}>
+                {statusText}
               </h1>
               <p className="mt-3 max-w-3xl text-sm leading-6 text-[var(--text-secondary)]">
                 {statusMessage}
@@ -197,10 +245,11 @@ export function DecisionCockpit({
 
         <Card className="p-6">
           <p className="page-overline">BusinessGoal IA</p>
-          <h2 className="mt-3 section-title">Executive Insight</h2>
+          <h2 className="mt-3 section-title">Insight del análisis activo</h2>
           <p className="mt-4 text-sm leading-6 text-[var(--text-secondary)]">
-            {result?.executive_summary?.ai_insight ||
-              "Datos de ejemplo: la prioridad ejecutiva se concentra en separar liquidez, margen y exposición antes de decidir."}
+            {result
+              ? result.executive_summary?.ai_insight || "El análisis activo no incluye un insight ejecutivo adicional."
+              : "Datos de ejemplo: la prioridad ejecutiva se concentra en separar liquidez, margen y exposición antes de decidir."}
           </p>
           <Button onClick={onGoToAnalysis} className="mt-5" variant="secondary" size="sm">
             Ver análisis
@@ -211,61 +260,76 @@ export function DecisionCockpit({
       <Card className="p-5">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <p className="page-overline">Economic Exposure</p>
+            <p className="page-overline">Exposición económica</p>
             <h2 className="mt-2 section-title">Magnitudes económicas separadas</h2>
             <p className="mt-1 max-w-4xl text-sm leading-6 text-[var(--text-secondary)]">
-              Caja liberable, margen mejorable y margen expuesto son dimensiones distintas. No se agregan como resultado único.
+              Magnitudes económicas distintas; no son aditivas.
             </p>
           </div>
-          <Badge variant={isDemo ? "neutral" : "primary"}>
-            {isDemo ? "Datos de ejemplo" : result?.economic_value_summary?.display_total_role || "LEGACY_DIMENSIONAL_SUM"}
-          </Badge>
+          <Badge variant={isDemo ? "neutral" : "primary"}>{isDemo ? "Datos de ejemplo" : "Magnitudes no aditivas"}</Badge>
         </div>
-        <div className="mt-5 grid gap-3 md:grid-cols-3">
-          {exposureCategories.slice(0, 3).map((category) => (
-            <div key={category.key} className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">{category.label}</p>
-              <p className={cn("mt-3 text-2xl font-semibold", exposureTone(category))}>{formatCurrency(category.value)}</p>
-              <p className="mt-2 line-clamp-3 text-xs leading-5 text-[var(--text-secondary)]">{category.description}</p>
-            </div>
-          ))}
-        </div>
+        {exposureCategories.length ? (
+          <div className="mt-5 grid gap-3 md:grid-cols-3">
+            {exposureCategories.slice(0, 3).map((category) => (
+              <div key={category.key} className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">{category.label}</p>
+                <p className={cn("mt-3 text-2xl font-semibold", exposureTone(category))}>{formatCurrency(category.value)}</p>
+                <p className="mt-2 line-clamp-3 text-xs leading-5 text-[var(--text-secondary)]">{category.description}</p>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="mt-5 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4 text-sm leading-6 text-[var(--text-secondary)]">
+            No se han identificado magnitudes económicas que requieran atención con los datos analizados.
+          </div>
+        )}
       </Card>
 
       <section className="grid gap-5 xl:grid-cols-[1fr_1fr]">
         <Card>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <p className="page-overline">Priority Decisions</p>
+              <p className="page-overline">Decisiones prioritarias</p>
               <h2 className="mt-2 section-title">Decisiones prioritarias</h2>
             </div>
             <Button onClick={onGoToDecisions} variant="ghost" size="sm">
               Ver todas las decisiones
             </Button>
           </div>
-          <div className="mt-5 space-y-3">
-            {topRecommendations.map((recommendation, index) => (
-              <article key={`${recommendation.title}-${index}`} className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4">
-                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                  <div>
-                    <div className="flex flex-wrap gap-2">
-                      <Badge className={priorityClass(recommendation.priority)}>{priorityLabel(recommendation.priority)}</Badge>
-                      <Badge variant="primary">{recommendationCategoryLabel(recommendation.category)}</Badge>
+          {topRecommendations.length ? (
+            <div className="mt-5 space-y-3">
+              {topRecommendations.map((recommendation, index) => (
+                <article key={`${recommendation.title}-${index}`} className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4">
+                  <div className="grid gap-4 sm:grid-cols-[44px_1fr_auto] sm:items-start">
+                    <span className="grid h-9 w-9 place-items-center rounded-lg border border-[var(--border)] bg-[var(--surface-1)] text-xs font-semibold text-[var(--text-muted)]">
+                      {String(index + 1).padStart(2, "0")}
+                    </span>
+                    <div>
+                      <div className="flex flex-wrap gap-2">
+                        <Badge className={priorityClass(recommendation.priority)}>{priorityLabel(recommendation.priority)}</Badge>
+                        <Badge variant="primary">{recommendationCategoryLabel(recommendation.category)}</Badge>
+                        {recommendation.confidence_level ? <Badge variant="neutral">{formatNumber(recommendation.confidence_level, 0)}% confianza</Badge> : null}
+                        {recommendation.timeframe ? <Badge variant="neutral">{recommendation.timeframe}</Badge> : null}
+                      </div>
+                      <h3 className="mt-3 text-sm font-semibold text-[var(--text-primary)]">{recommendation.title}</h3>
+                      <p className="mt-1 line-clamp-2 text-xs leading-5 text-[var(--text-secondary)]">{recommendation.what_happens}</p>
                     </div>
-                    <h3 className="mt-3 text-sm font-semibold text-[var(--text-primary)]">{recommendation.title}</h3>
-                    <p className="mt-1 line-clamp-2 text-xs leading-5 text-[var(--text-secondary)]">{recommendation.what_happens}</p>
+                    <div className="shrink-0 sm:text-right">
+                      <p className="text-xs text-[var(--text-muted)]">{economicMagnitudeLabel(recommendation.category)}</p>
+                      <p className="mt-1 text-sm font-semibold text-[var(--value)]">{formatCurrency(recommendation.economic_impact)}</p>
+                      <Button onClick={() => onSelectRecommendation(recommendation)} className="mt-3" variant="secondary" size="sm">
+                        Ver decisión
+                      </Button>
+                    </div>
                   </div>
-                  <div className="shrink-0 sm:text-right">
-                    <p className="text-xs text-[var(--text-muted)]">Magnitud estimada</p>
-                    <p className="mt-1 text-sm font-semibold text-[var(--value)]">{formatCurrency(recommendation.economic_impact)}</p>
-                    <Button onClick={() => onSelectRecommendation(recommendation)} className="mt-3" variant="secondary" size="sm">
-                      Ver decisión
-                    </Button>
-                  </div>
-                </div>
-              </article>
-            ))}
-          </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <div className="mt-5 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4 text-sm leading-6 text-[var(--text-secondary)]">
+              No se han identificado decisiones prioritarias en el análisis activo.
+            </div>
+          )}
         </Card>
 
         <WhatChanged
@@ -280,7 +344,7 @@ export function DecisionCockpit({
       <Card className="p-5">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <p className="page-overline">Data Confidence / Analysis Context</p>
+            <p className="page-overline">Contexto del análisis</p>
             <h2 className="mt-2 section-title">Contexto de análisis</h2>
             <p className="mt-1 max-w-4xl text-sm leading-6 text-[var(--text-secondary)]">
               {result
@@ -290,10 +354,11 @@ export function DecisionCockpit({
           </div>
           <Badge variant={result ? "value" : "neutral"}>{result ? "Análisis activo" : "Demo"}</Badge>
         </div>
-        <div className="mt-5 grid gap-3 md:grid-cols-3">
+        <div className="mt-5 grid gap-3 md:grid-cols-4">
           <ContextPill label="Calidad de datos" value={quality === null ? "—" : `${formatNumber(quality, 0)}%`} />
           <ContextPill label="Modo" value={result?.analysis_mode === "multi_file" ? "Cruce multiarchivo" : result ? "Archivo único" : "Datos de ejemplo"} />
-          <ContextPill label="ID análisis" value={result?.analysis_id ? result.analysis_id.slice(0, 8) : "Demo"} />
+          <ContextPill label="Último análisis" value={result ? formatDateLabel(result.analysis_created_at) : "Demo"} />
+          <ContextPill label="Calidad de unión" value={mergeQuality === null ? (fileQuality === null ? "—" : `${formatNumber(fileQuality, 0)}% archivo`) : `${formatNumber(mergeQuality, 0)}%`} />
         </div>
       </Card>
     </div>
@@ -323,6 +388,7 @@ function WhatChanged({
   comparisonUnavailableReason: ComparisonUnavailableReason | null;
 }) {
   const badge = comparison ? comparisonBadge(comparison) : null;
+  const safeErrorDetail = safeComparisonErrorDetail(comparisonError);
   const emptyReason = comparisonUnavailableReason === "FIRST_ANALYSIS"
     ? "Primer análisis real: los cambios aparecerán cuando exista un análisis anterior comparable."
     : comparisonUnavailableReason === "NO_SNAPSHOT"
@@ -335,7 +401,7 @@ function WhatChanged({
     <Card>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <p className="page-overline">What Changed</p>
+          <p className="page-overline">Qué ha cambiado</p>
           <h2 className="mt-2 section-title">Cambios relevantes</h2>
         </div>
         {comparisonLoading ? <Badge variant="primary">Comparando</Badge> : badge ? <Badge variant={badge.variant}>{badge.label}</Badge> : <Badge variant={isDemo ? "neutral" : "signal"}>{isDemo ? "Demo" : "Sin comparativa"}</Badge>}
@@ -345,13 +411,14 @@ function WhatChanged({
         <p className="mt-5 text-sm leading-6 text-[var(--text-secondary)]">Comparando el análisis activo con el histórico local más reciente.</p>
       ) : comparisonError ? (
         <div className="mt-5 rounded-lg border border-[rgba(239,185,76,0.38)] bg-[rgba(239,185,76,0.1)] p-4 text-sm leading-6 text-[var(--signal)]">
-          {comparisonError}
+          <p className="font-semibold">No se pudo preparar la comparación entre análisis.</p>
+          {safeErrorDetail ? <p className="mt-1 text-xs leading-5 text-[var(--text-secondary)]">{safeErrorDetail}</p> : null}
         </div>
       ) : comparison?.changes.length ? (
         <div className="mt-5 space-y-3">
           {comparison.status === "PARTIALLY_COMPARABLE" ? (
             <p className="rounded-lg border border-[rgba(239,185,76,0.38)] bg-[rgba(239,185,76,0.08)] px-3 py-2 text-xs leading-5 text-[var(--signal)]">
-              Comparación parcial: se muestran solo métricas válidas entre ambos análisis.
+              Los análisis presentan diferencias de alcance. Interpreta los cambios con cautela. Se muestran únicamente métricas válidas en ambos análisis.
             </p>
           ) : null}
           {comparison.changes.map((change) => (
@@ -371,7 +438,7 @@ function WhatChanged({
       ) : comparison ? (
         <p className="mt-5 text-sm leading-6 text-[var(--text-secondary)]">
           {comparison.status === "NOT_COMPARABLE"
-            ? "Los análisis no son comparables con suficiente consistencia, por lo que no se muestran deltas."
+            ? "Los análisis disponibles no son suficientemente comparables para mostrar una evolución fiable."
             : "No hay métricas numéricas válidas en ambos análisis para mostrar cambios."}
         </p>
       ) : (

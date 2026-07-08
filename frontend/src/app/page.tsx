@@ -300,7 +300,7 @@ function productIcon(index: number) {
 
 function getSummary(result: AnalyzeResponse | null) {
   const summary = result?.summary_kpis ?? {};
-  const recs = result?.recommendations?.length ? result.recommendations : FALLBACK_RECOMMENDATIONS;
+  const recs = result ? result.recommendations ?? [] : FALLBACK_RECOMMENDATIONS;
   const economicSummary = result?.economic_value_summary;
   const hasAggregateEconomicValue = economicSummary?.display_total_recommended_for_hero !== false;
   const totalImpact = result && hasAggregateEconomicValue
@@ -313,7 +313,7 @@ function getSummary(result: AnalyzeResponse | null) {
     opportunities: result ? recs.length : 8,
     loss: result ? asNumber(summary.cash_release_potential) : 12300,
     critical: result ? asNumber(summary.products_without_sales) + asNumber(summary.high_stock_low_sales_products) : 14,
-    actions: result?.today_actions?.length || Math.min(5, recs.length || 5),
+    actions: result ? result.today_actions?.length ?? 0 : Math.min(5, recs.length || 5),
     capital: result ? asNumber(summary.cash_release_potential) : 27800,
     margin: result ? asNumber(summary.average_margin_pct) : 21.4,
     score: result ? asNumber(summary.business_score_current, 82) : 82,
@@ -466,9 +466,9 @@ export default function Home() {
   }, [result, history]);
 
   const summary = useMemo(() => getSummary(result), [result]);
-  const recommendations = result?.recommendations?.length ? result.recommendations : FALLBACK_RECOMMENDATIONS;
+  const recommendations = result ? result.recommendations ?? [] : FALLBACK_RECOMMENDATIONS;
   const scenarios = result?.scenario_simulation;
-  const products = result?.products_preview?.length ? (result.products_preview as ProductRow[]) : PRODUCT_DEMO;
+  const products = result ? (result.products_preview as ProductRow[]) ?? [] : PRODUCT_DEMO;
   const filteredProducts = products.filter((p) => {
     if (!query.trim()) return true;
     return String(p.product_name || p.producto || p.sku || "").toLowerCase().includes(query.toLowerCase());
