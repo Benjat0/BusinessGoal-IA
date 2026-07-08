@@ -237,6 +237,15 @@ export type BusinessStatus = {
   status: string;
   tone: "positive" | "warning" | "info" | string;
   message: string;
+  signals?: {
+    high_priority_count?: number;
+    capital_pressure_pct?: number;
+    stockout_risk_count?: number;
+    dead_stock_count?: number;
+    excess_stock_count?: number;
+    low_margin_high_sales_count?: number;
+    recommendation_count?: number;
+  };
 };
 
 export type AnalysisSnapshot = {
@@ -297,17 +306,19 @@ export type ComparabilityResult = {
   explanation: string;
 };
 
-export type MetricChangeFormat = "currency" | "percent" | "integer" | "score" | string;
+export type MetricChangeFormat = "currency" | "percent" | "integer" | "score";
 
-export type MetricMovement = "UP" | "DOWN" | "FLAT" | string;
+export type MetricMovement = "UP" | "DOWN" | "FLAT";
 
-export type MetricSignal = "POSITIVE" | "NEGATIVE" | "NEUTRAL" | string;
+export type MetricSignal = "POSITIVE" | "NEGATIVE" | "NEUTRAL";
+
+export type MetricDirection = "HIGHER_IS_BETTER" | "LOWER_IS_BETTER" | "NEUTRAL";
 
 export type AnalysisMetricChange = {
   key: string;
   label: string;
   format: MetricChangeFormat;
-  direction: "HIGHER_IS_BETTER" | "LOWER_IS_BETTER" | "NEUTRAL" | string;
+  direction: MetricDirection;
   baseline_value: number;
   candidate_value: number;
   delta: number;

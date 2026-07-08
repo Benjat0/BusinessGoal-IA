@@ -7,19 +7,18 @@ from .comparability import compare_analysis_snapshots
 
 MetricDirection = str
 
+# v20.2 only compares a metric when both snapshots have meaningful coverage for
+# the source signals behind it. Missing coverage is treated as unavailable data.
+MIN_METRIC_COVERAGE = 0.5
+
 
 METRIC_CATALOG: List[Dict[str, Any]] = [
-    {
-        "key": "business_score_current",
-        "label": "Business Score",
-        "format": "score",
-        "direction": "HIGHER_IS_BETTER",
-    },
     {
         "key": "cash_release_potential",
         "label": "Capital que requiere atención",
         "format": "currency",
         "direction": "LOWER_IS_BETTER",
+        "required_all_coverage": ["stock_units", "inventory_value"],
     },
     {
         "key": "average_margin_pct",
@@ -27,24 +26,40 @@ METRIC_CATALOG: List[Dict[str, Any]] = [
         "format": "percent",
         "direction": "HIGHER_IS_BETTER",
         "delta_unit": "percentage_points",
+        "required_all_coverage": ["gross_margin_pct"],
     },
     {
         "key": "products_without_sales",
         "label": "Productos sin ventas",
         "format": "integer",
         "direction": "LOWER_IS_BETTER",
+        "required_all_coverage": ["units_sold"],
     },
     {
         "key": "high_stock_low_sales_products",
         "label": "Productos con stock alto y baja salida",
         "format": "integer",
         "direction": "LOWER_IS_BETTER",
+        "required_all_coverage": ["stock_units", "units_sold"],
+    },
+    {
+        "key": "business_score_current",
+        "label": "Business Score",
+        "format": "score",
+        "direction": "HIGHER_IS_BETTER",
+        # Business Score is derived, so require at least two core signals in
+        # both snapshots instead of trusting the score value alone.
+        "required_min_any_coverage": {
+            "keys": ["stock_units", "units_sold", "gross_margin_pct"],
+            "min_count": 2,
+        },
     },
     {
         "key": "total_inventory_value",
         "label": "Valor de inventario",
         "format": "currency",
         "direction": "NEUTRAL",
+        "required_all_coverage": ["inventory_value"],
     },
 ]
 
@@ -73,6 +88,42 @@ def _real_number(value: Any) -> float | None:
     if numeric != numeric or numeric in (float("inf"), float("-inf")):
         return None
     return numeric
+
+
+def _metric_coverage(snapshot: Dict[str, Any], key: str) -> float | None:
+    coverage = (snapshot.get("comparability_metadata") or {}).get("metric_coverage") or {}
+    if key not in coverage:
+        return None
+    value = coverage.get(key)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    numeric = float(value)
+    if numeric != numeric or numeric in (float("inf"), float("-inf")):
+        return None
+    return numeric
+
+
+def _has_min_coverage(snapshot: Dict[str, Any], key: str) -> bool:
+    coverage = _metric_coverage(snapshot, key)
+    return coverage is not None and coverage >= MIN_METRIC_COVERAGE
+
+
+def _metric_has_required_coverage(metric: Dict[str, Any], baseline: Dict[str, Any], candidate: Dict[str, Any]) -> bool:
+    required_all = metric.get("required_all_coverage") or []
+    for key in required_all:
+        if not _has_min_coverage(baseline, key) or not _has_min_coverage(candidate, key):
+            return False
+
+    required_any = metric.get("required_min_any_coverage")
+    if required_any:
+        keys = required_any.get("keys") or []
+        min_count = int(required_any.get("min_count") or 0)
+        baseline_count = sum(1 for key in keys if _has_min_coverage(baseline, key))
+        candidate_count = sum(1 for key in keys if _has_min_coverage(candidate, key))
+        if baseline_count < min_count or candidate_count < min_count:
+            return False
+
+    return True
 
 
 def _movement(delta: float) -> str:
@@ -134,7 +185,15 @@ def _build_metric_changes(
         candidate_value = _real_number(candidate_summary.get(metric["key"]))
         if baseline_value is None or candidate_value is None:
             continue
-        changes.append(_metric_change(metric, baseline_value, candidate_value))
+        if not _metric_has_required_coverage(metric, baseline_snapshot, candidate_snapshot):
+            continue
+
+        change = _metric_change(metric, baseline_value, candidate_value)
+        # What Changed is an executive change feed; flat values do not consume
+        # the visible metric limit.
+        if change["movement"] == "FLAT":
+            continue
+        changes.append(change)
 
     limited = changes[:limit]
     return limited, len(changes) > len(limited)
