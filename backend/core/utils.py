@@ -27,9 +27,19 @@ def normalize_text(value: Any) -> str:
     return text.strip("_")
 
 
-def parse_business_number(value: Any) -> float:
+def _is_missing_business_value(value: Any) -> bool:
+    if value is None:
+        return True
+    try:
+        missing = pd.isna(value)
+    except (TypeError, ValueError):
+        return False
+    return bool(missing) if isinstance(missing, bool) else False
+
+
+def parse_business_number_nullable(value: Any) -> float | None:
     """
-    Convert spreadsheet-like numeric values to floats safely.
+    Convert spreadsheet-like numeric values to floats while preserving missing.
 
     Handles common Spanish/European and US formats:
     - 119.75 -> 119.75
@@ -42,8 +52,8 @@ def parse_business_number(value: Any) -> float:
     separators, so values such as 119.75 became 11975. This function avoids
     that issue by detecting which separator is probably decimal.
     """
-    if value is None:
-        return 0.0
+    if _is_missing_business_value(value):
+        return None
 
     # Native numeric values from Excel should be preserved.
     if isinstance(value, (int, float)) and not pd.isna(value):
@@ -51,7 +61,7 @@ def parse_business_number(value: Any) -> float:
 
     text = str(value).strip()
     if text == "" or text.lower() in {"nan", "none", "null"}:
-        return 0.0
+        return None
 
     # Remove currency symbols, percentages and spaces, but keep separators.
     text = (
@@ -64,7 +74,7 @@ def parse_business_number(value: Any) -> float:
     text = re.sub(r"[^0-9,\.\-]", "", text)
 
     if text in {"", "-", ".", ","}:
-        return 0.0
+        return None
 
     has_comma = "," in text
     has_dot = "." in text
@@ -93,7 +103,19 @@ def parse_business_number(value: Any) -> float:
     try:
         return float(text)
     except ValueError:
-        return 0.0
+        return None
+
+
+def parse_business_number(value: Any) -> float:
+    """
+    Legacy numeric parser kept for compatibility.
+
+    Missing, empty and invalid values are still returned as 0.0. New business
+    logic should use parse_business_number_nullable/to_nullable_number when it
+    needs to distinguish missing data from an observed zero.
+    """
+    parsed = parse_business_number_nullable(value)
+    return 0.0 if parsed is None else parsed
 
 
 def to_number(series: pd.Series) -> pd.Series:
@@ -102,6 +124,14 @@ def to_number(series: pd.Series) -> pd.Series:
         return pd.Series(dtype="float64")
 
     return series.apply(parse_business_number).astype(float).fillna(0)
+
+
+def to_nullable_number(series: pd.Series) -> pd.Series:
+    """Convert spreadsheet-like numeric text to floats, preserving missing as NaN."""
+    if series is None:
+        return pd.Series(dtype="float64")
+
+    return pd.to_numeric(series.apply(parse_business_number_nullable), errors="coerce")
 
 
 def safe_divide(numerator: float, denominator: float) -> float:

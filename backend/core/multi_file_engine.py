@@ -7,7 +7,7 @@ import pandas as pd
 
 from .field_mapper import CANONICAL_FIELDS, detect_columns, normalize_dataframe
 from .file_validator import build_reverse_mapping, infer_file_type, validate_file
-from .utils import normalize_text, to_number
+from .utils import normalize_text, to_nullable_number
 
 
 @dataclass
@@ -76,12 +76,12 @@ def _aggregate_sales(sales: pd.DataFrame) -> pd.DataFrame:
     if sales.empty:
         return pd.DataFrame(columns=["_join_key", "units_sold", "revenue", "last_sale_date"])
 
-    sales["units_sold_num"] = to_number(sales.get("units_sold", pd.Series(dtype="object")))
-    sales["revenue_num"] = to_number(sales.get("revenue", pd.Series(dtype="object")))
-    sales["sale_price_num"] = to_number(sales.get("sale_price", pd.Series(dtype="object")))
+    sales["units_sold_num"] = to_nullable_number(sales.get("units_sold", pd.Series(dtype="object")))
+    sales["revenue_num"] = to_nullable_number(sales.get("revenue", pd.Series(dtype="object")))
+    sales["sale_price_num"] = to_nullable_number(sales.get("sale_price", pd.Series(dtype="object")))
 
     # If revenue is not present, estimate it from units sold and sale price when possible.
-    missing_revenue = sales["revenue_num"] <= 0
+    missing_revenue = sales["revenue_num"].isna()
     sales.loc[missing_revenue, "revenue_num"] = sales.loc[missing_revenue, "units_sold_num"] * sales.loc[missing_revenue, "sale_price_num"]
 
     aggregations: Dict[str, Any] = {
@@ -93,7 +93,10 @@ def _aggregate_sales(sales: pd.DataFrame) -> pd.DataFrame:
         sales["last_sale_date_parsed"] = pd.to_datetime(sales["last_sale_date"], errors="coerce")
         aggregations["last_sale_date_parsed"] = "max"
 
-    grouped = sales.groupby("_join_key", as_index=False).agg(aggregations)
+    grouped = sales.groupby("_join_key", as_index=False).agg({
+        key: (lambda values: values.sum(min_count=1)) if value == "sum" else value
+        for key, value in aggregations.items()
+    })
     grouped = grouped.rename(columns={
         "units_sold_num": "units_sold_from_sales",
         "revenue_num": "revenue_from_sales",
@@ -117,7 +120,7 @@ def _dedupe_products(df: pd.DataFrame) -> pd.DataFrame:
         return df
 
     # Keep one row per product, summing stock if duplicate and keeping useful descriptors.
-    numeric_stock = to_number(df.get("stock_units", pd.Series(dtype="object")))
+    numeric_stock = to_nullable_number(df.get("stock_units", pd.Series(dtype="object")))
     df["stock_units_num_tmp"] = numeric_stock
 
     agg: Dict[str, Any] = {}
@@ -125,7 +128,7 @@ def _dedupe_products(df: pd.DataFrame) -> pd.DataFrame:
         if col == "stock_units":
             continue
         if col == "stock_units_num_tmp":
-            agg[col] = "sum"
+            agg[col] = lambda values: values.sum(min_count=1)
         elif col != "_join_key":
             agg[col] = _first_non_empty
 
@@ -174,13 +177,13 @@ def merge_prepared_files(prepared_files: List[PreparedFile]) -> Tuple[pd.DataFra
 
             # Override/complete units sold and revenue from dedicated sales file.
             if "units_sold_from_sales" in base.columns:
-                current_units = to_number(base.get("units_sold", pd.Series(dtype="object")))
-                from_sales = base["units_sold_from_sales"].fillna(0)
-                base["units_sold"] = from_sales.where(from_sales > 0, current_units)
+                current_units = to_nullable_number(base.get("units_sold", pd.Series(dtype="object")))
+                from_sales = base["units_sold_from_sales"]
+                base["units_sold"] = from_sales.where(from_sales.notna(), current_units)
             if "revenue_from_sales" in base.columns:
-                current_revenue = to_number(base.get("revenue", pd.Series(dtype="object")))
-                from_sales_rev = base["revenue_from_sales"].fillna(0)
-                base["revenue"] = from_sales_rev.where(from_sales_rev > 0, current_revenue)
+                current_revenue = to_nullable_number(base.get("revenue", pd.Series(dtype="object")))
+                from_sales_rev = base["revenue_from_sales"]
+                base["revenue"] = from_sales_rev.where(from_sales_rev.notna(), current_revenue)
             if "last_sale_date_from_sales" in base.columns:
                 base["last_sale_date"] = base["last_sale_date_from_sales"]
 
