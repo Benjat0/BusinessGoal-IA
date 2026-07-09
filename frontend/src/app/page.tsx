@@ -54,7 +54,7 @@ type HistoryItem = {
 
 type Toast = { type: "success" | "error" | "info"; message: string } | null;
 
-type ProductRow = Record<string, string | number | undefined>;
+type ProductRow = Record<string, string | number | null | undefined>;
 
 const DEFAULT_BUSINESS_PROFILE: BusinessProfile = {
   company_name: "Empresa demo",
@@ -175,6 +175,30 @@ function asNumber(value: unknown, fallback = 0) {
   return Number.isFinite(numeric) ? numeric : fallback;
 }
 
+function optionalNumber(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const numeric = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function firstMetric(row: ProductRow, keys: string[]): number | null {
+  for (const key of keys) {
+    const numeric = optionalNumber(row[key]);
+    if (numeric !== null) return numeric;
+  }
+  return null;
+}
+
+function formatOptionalCurrency(value: unknown, decimals = 0) {
+  const numeric = optionalNumber(value);
+  return numeric === null ? "—" : formatCurrency(numeric, decimals);
+}
+
+function formatOptionalNumber(value: unknown, decimals = 0, suffix = "") {
+  const numeric = optionalNumber(value);
+  return numeric === null ? "—" : `${formatNumber(numeric, decimals)}${suffix}`;
+}
+
 function formatCurrency(value?: number | string, decimals = 0) {
   return new Intl.NumberFormat("es-ES", {
     style: "currency",
@@ -210,7 +234,7 @@ function csvSafe(value: unknown) {
 
 function exportRowsToCsv(
   filename: string,
-  columns: { header: string; value: (row: ProductRow) => string | number | undefined }[],
+  columns: { header: string; value: (row: ProductRow) => string | number | null | undefined }[],
   rows: ProductRow[],
 ) {
   if (typeof window === "undefined") return;
@@ -697,31 +721,35 @@ function riskTone(value: string) {
 }
 
 function salesUnits(row: ProductRow) {
-  return asNumber(row.units_sold_num || row.units_sold || row.ventas_90d || row.unidades_vendidas || row.sales_units || 0);
+  return firstMetric(row, ["units_sold_num", "units_sold", "ventas_90d", "unidades_vendidas", "sales_units"]);
 }
 
 function productPrice(row: ProductRow) {
-  return asNumber(row.sale_price_num || row.sale_price || row.pvp || row.precio || 0);
+  return firstMetric(row, ["sale_price_num", "sale_price", "pvp", "precio"]);
 }
 
 function productCost(row: ProductRow) {
-  return asNumber(row.unit_cost_num || row.unit_cost || row.coste || row.coste_medio || 0);
+  return firstMetric(row, ["unit_cost_num", "unit_cost", "coste", "coste_medio"]);
 }
 
 function productMargin(row: ProductRow) {
-  const existing = asNumber(row.gross_margin_pct || row.margen_bruto_pct || row.margin_pct, NaN);
-  if (Number.isFinite(existing)) return existing;
+  const existing = firstMetric(row, ["gross_margin_pct", "margen_bruto_pct", "margin_pct"]);
+  if (existing !== null) return existing;
   const price = productPrice(row);
   const cost = productCost(row);
-  return price > 0 ? ((price - cost) / price) * 100 : 0;
+  return price !== null && cost !== null && price > 0 ? ((price - cost) / price) * 100 : null;
 }
 
 function productRevenue(row: ProductRow) {
-  return asNumber(row.revenue || row.total_revenue || row.importe_ventas || row.ingresos, salesUnits(row) * productPrice(row));
+  const existing = firstMetric(row, ["revenue", "total_revenue", "importe_ventas", "ingresos"]);
+  if (existing !== null) return existing;
+  const units = salesUnits(row);
+  const price = productPrice(row);
+  return units !== null && price !== null ? units * price : null;
 }
 
 function coverageDays(row: ProductRow) {
-  return asNumber(row.stock_coverage_days || row.dias_cobertura || row.coverage_days || 0);
+  return firstMetric(row, ["stock_coverage_days", "dias_cobertura", "coverage_days"]);
 }
 
 function ProductCatalogTable({ products, result }: { products: ProductRow[]; result: AnalyzeResponse | null }) {
@@ -739,7 +767,7 @@ function ProductCatalogTable({ products, result }: { products: ProductRow[]; res
             { header: "Proveedor", value: (row) => String(row.supplier || row.proveedor || "") },
             { header: "Coste", value: (row) => productCost(row) },
             { header: "Precio", value: (row) => productPrice(row) },
-            { header: "Margen %", value: (row) => productMargin(row).toFixed(2) },
+            { header: "Margen %", value: (row) => productMargin(row)?.toFixed(2) ?? "" },
             { header: "Unidades vendidas", value: (row) => salesUnits(row) },
           ], products)} variant="secondary" size="sm">Exportar CSV</Button></div>
         <div className="overflow-x-auto">
@@ -748,9 +776,11 @@ function ProductCatalogTable({ products, result }: { products: ProductRow[]; res
             <TableBody>
               {products.slice(0, 18).map((p, index) => {
                 const margin = productMargin(p);
-                const status = margin < 20 ? "Margen bajo" : coverageDays(p) > 180 ? "Sobrestock" : salesUnits(p) === 0 ? "Sin ventas" : "Correcto";
-                const action = margin < 20 ? "Revisar precio" : coverageDays(p) > 180 ? "Reducir stock" : salesUnits(p) === 0 ? "Liquidar" : "Mantener";
-                return <TableRow key={`${p.product_name}-${index}`}><TableCell><div className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-lg bg-[var(--surface-elevated)] text-xs font-semibold text-[var(--text-muted)]">{productIcon(index)}</span><div><p className="font-semibold text-[var(--text-primary)]">{String(p.product_name || p.producto || "Producto")}</p><p className="text-xs text-[var(--text-muted)]">{String(p.supplier || p.proveedor || "Proveedor no indicado")}</p></div></div></TableCell><TableCell>{String(p.sku || "-")}</TableCell><TableCell>{String(p.category || p.categoria || "Sin categoría")}</TableCell><TableCell numeric>{formatCurrency(productCost(p), 2)}</TableCell><TableCell numeric>{formatCurrency(productPrice(p), 2)}</TableCell><TableCell numeric className="font-semibold text-[var(--text-primary)]">{formatNumber(margin, 1)}%</TableCell><TableCell><Badge className={riskTone(status)}>{status}</Badge></TableCell><TableCell>{action}</TableCell></TableRow>;
+                const coverage = coverageDays(p);
+                const units = salesUnits(p);
+                const status = margin !== null && margin < 20 ? "Margen bajo" : coverage !== null && coverage > 180 ? "Sobrestock" : units === 0 ? "Sin ventas" : "Correcto";
+                const action = margin !== null && margin < 20 ? "Revisar precio" : coverage !== null && coverage > 180 ? "Reducir stock" : units === 0 ? "Liquidar" : "Mantener";
+                return <TableRow key={`${p.product_name}-${index}`}><TableCell><div className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-lg bg-[var(--surface-elevated)] text-xs font-semibold text-[var(--text-muted)]">{productIcon(index)}</span><div><p className="font-semibold text-[var(--text-primary)]">{String(p.product_name || p.producto || "Producto")}</p><p className="text-xs text-[var(--text-muted)]">{String(p.supplier || p.proveedor || "Proveedor no indicado")}</p></div></div></TableCell><TableCell>{String(p.sku || "-")}</TableCell><TableCell>{String(p.category || p.categoria || "Sin categoría")}</TableCell><TableCell numeric>{formatOptionalCurrency(productCost(p), 2)}</TableCell><TableCell numeric>{formatOptionalCurrency(productPrice(p), 2)}</TableCell><TableCell numeric className="font-semibold text-[var(--text-primary)]">{formatOptionalNumber(margin, 1, "%")}</TableCell><TableCell><Badge className={riskTone(status)}>{status}</Badge></TableCell><TableCell>{action}</TableCell></TableRow>;
               })}
             </TableBody>
           </Table>
@@ -768,10 +798,10 @@ function InventoryTable({ products, compact = false }: { products: ProductRow[];
           { header: "Producto", value: (row) => String(row.product_name || row.producto || row.sku || "") },
           { header: "SKU", value: (row) => String(row.sku || "") },
           { header: "Categoría", value: (row) => String(row.category || row.categoria || "") },
-          { header: "Stock actual", value: (row) => asNumber(row.stock_units_num || row.stock || 0) },
-          { header: "Cobertura días", value: (row) => coverageDays(row).toFixed(0) },
-          { header: "Rotación 90d", value: (row) => asNumber(row.stock_turnover_90d || row.rotacion, 0).toFixed(2) },
-          { header: "Capital inmovilizado", value: (row) => asNumber(row.inventory_value) },
+          { header: "Stock actual", value: (row) => firstMetric(row, ["stock_units_num", "stock"]) },
+          { header: "Cobertura días", value: (row) => coverageDays(row)?.toFixed(0) ?? "" },
+          { header: "Rotación 90d", value: (row) => firstMetric(row, ["stock_turnover_90d", "rotacion"])?.toFixed(2) ?? "" },
+          { header: "Capital inmovilizado", value: (row) => firstMetric(row, ["inventory_value"]) },
           { header: "Unidades vendidas", value: (row) => salesUnits(row) },
         ], products)} variant="secondary" size="sm">Exportar CSV</Button></div>
       <div className="overflow-x-auto">
@@ -779,10 +809,12 @@ function InventoryTable({ products, compact = false }: { products: ProductRow[];
           <TableHead><TableRow><TableHeaderCell>Producto</TableHeaderCell><TableHeaderCell>Categoría</TableHeaderCell><TableHeaderCell className="text-right">Stock actual</TableHeaderCell><TableHeaderCell className="text-right">Cobertura</TableHeaderCell><TableHeaderCell className="text-right">Rotación</TableHeaderCell><TableHeaderCell className="text-right">Capital inmovilizado</TableHeaderCell><TableHeaderCell>Estado</TableHeaderCell></TableRow></TableHead>
           <TableBody>
             {products.slice(0, compact ? 5 : 16).map((p, index) => {
-              const turnover = asNumber(p.stock_turnover_90d || p.rotacion, 0);
+              const turnover = firstMetric(p, ["stock_turnover_90d", "rotacion"]);
               const coverage = coverageDays(p);
-              const status = salesUnits(p) === 0 && asNumber(p.stock_units_num || p.stock || 0) > 0 ? "Sin ventas" : coverage > 180 || turnover < 0.5 ? "Alto" : turnover < 1 ? "Revisar" : "Correcto";
-              return <TableRow key={`${p.product_name}-${index}`}><TableCell><div className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-lg bg-[var(--surface-elevated)] text-xs font-semibold text-[var(--text-muted)]">{productIcon(index)}</span><div><p className="font-semibold text-[var(--text-primary)]">{String(p.product_name || p.producto || p.sku || "Producto")}</p><p className="text-xs text-[var(--text-muted)]">{String(p.sku || "SKU no disponible")}</p></div></div></TableCell><TableCell>{String(p.category || p.categoria || "Sin categoría")}</TableCell><TableCell numeric>{formatNumber(p.stock_units_num || p.stock || 0)} uds</TableCell><TableCell numeric>{coverage ? `${formatNumber(coverage, 0)} días` : "-"}</TableCell><TableCell numeric><span className={cn("mr-2 inline-block h-2 w-2 rounded-full", turnover < 0.5 ? "bg-[var(--risk)]" : turnover < 1 ? "bg-[var(--signal)]" : "bg-[var(--value)]")} />{formatNumber(turnover, 1)}x</TableCell><TableCell numeric className="font-semibold text-[var(--text-primary)]">{formatCurrency(asNumber(p.inventory_value))}</TableCell><TableCell><Badge className={riskTone(status)}>{status}</Badge></TableCell></TableRow>;
+              const stock = firstMetric(p, ["stock_units_num", "stock"]);
+              const units = salesUnits(p);
+              const status = units === 0 && stock !== null && stock > 0 ? "Sin ventas" : (coverage !== null && coverage > 180) || (turnover !== null && turnover < 0.5) ? "Alto" : turnover !== null && turnover < 1 ? "Revisar" : "Correcto";
+              return <TableRow key={`${p.product_name}-${index}`}><TableCell><div className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-lg bg-[var(--surface-elevated)] text-xs font-semibold text-[var(--text-muted)]">{productIcon(index)}</span><div><p className="font-semibold text-[var(--text-primary)]">{String(p.product_name || p.producto || p.sku || "Producto")}</p><p className="text-xs text-[var(--text-muted)]">{String(p.sku || "SKU no disponible")}</p></div></div></TableCell><TableCell>{String(p.category || p.categoria || "Sin categoría")}</TableCell><TableCell numeric>{formatOptionalNumber(stock, 0, " uds")}</TableCell><TableCell numeric>{formatOptionalNumber(coverage, 0, " días")}</TableCell><TableCell numeric>{turnover === null ? "—" : <><span className={cn("mr-2 inline-block h-2 w-2 rounded-full", turnover < 0.5 ? "bg-[var(--risk)]" : turnover < 1 ? "bg-[var(--signal)]" : "bg-[var(--value)]")} />{formatNumber(turnover, 1)}x</>}</TableCell><TableCell numeric className="font-semibold text-[var(--text-primary)]">{formatOptionalCurrency(firstMetric(p, ["inventory_value"]))}</TableCell><TableCell><Badge className={riskTone(status)}>{status}</Badge></TableCell></TableRow>;
             })}
           </TableBody>
         </Table>
@@ -803,23 +835,31 @@ function SalesTable({ products, result }: { products: ProductRow[]; result: Anal
             { header: "Producto", value: (row) => String(row.product_name || row.producto || row.sku || "") },
             { header: "Categoría", value: (row) => String(row.category || row.categoria || "") },
             { header: "Unidades vendidas", value: (row) => salesUnits(row) },
-            { header: "Ingresos estimados", value: (row) => productRevenue(row).toFixed(2) },
-            { header: "Margen generado", value: (row) => ((productPrice(row) - productCost(row)) * salesUnits(row)).toFixed(2) },
-            { header: "Stock actual", value: (row) => asNumber(row.stock_units_num || row.stock || 0) },
-            { header: "Riesgo de rotura", value: (row) => asNumber(row.stock_units_num || row.stock || 0) <= Math.max(5, salesUnits(row) * 0.15) ? "Alto" : "Normal" },
+            { header: "Ingresos estimados", value: (row) => productRevenue(row)?.toFixed(2) ?? "" },
+            { header: "Margen generado", value: (row) => firstMetric(row, ["gross_profit_estimated", "beneficio_estimado"])?.toFixed(2) ?? "" },
+            { header: "Stock actual", value: (row) => firstMetric(row, ["stock_units_num", "stock"]) },
+            { header: "Riesgo de rotura", value: (row) => {
+              const stock = firstMetric(row, ["stock_units_num", "stock"]);
+              const units = salesUnits(row);
+              return stock !== null && units !== null && stock <= Math.max(5, units * 0.15) ? "Alto" : "Normal";
+            } },
           ], products)} variant="secondary" size="sm">Exportar CSV</Button></div>
         <div className="overflow-x-auto">
           <Table className="min-w-[900px]">
             <TableHead><TableRow><TableHeaderCell>Producto</TableHeaderCell><TableHeaderCell className="text-right">Unidades vendidas</TableHeaderCell><TableHeaderCell className="text-right">Ingresos estimados</TableHeaderCell><TableHeaderCell className="text-right">Margen generado</TableHeaderCell><TableHeaderCell className="text-right">Stock actual</TableHeaderCell><TableHeaderCell>Riesgo de rotura</TableHeaderCell><TableHeaderCell>Acción comercial</TableHeaderCell></TableRow></TableHead>
             <TableBody>
-              {[...products].sort((a, b) => salesUnits(b) - salesUnits(a)).slice(0, 16).map((p, index) => {
+              {[...products].sort((a, b) => (salesUnits(b) ?? -1) - (salesUnits(a) ?? -1)).slice(0, 16).map((p, index) => {
                 const units = salesUnits(p);
                 const revenue = productRevenue(p);
-                const profit = asNumber(p.gross_profit_estimated || p.beneficio_estimado, units * Math.max(0, productPrice(p) - productCost(p)));
-                const stock = asNumber(p.stock_units_num || p.stock || 0);
-                const risk = units > 20 && stock < Math.max(8, units * 0.2) ? "Alto" : units > 10 && stock < units * 0.4 ? "Medio" : "Bajo";
-                const action = risk === "Alto" ? "Reponer prioritario" : productMargin(p) < 20 && units > 10 ? "Revisar precio" : "Mantener seguimiento";
-                return <TableRow key={`${p.product_name}-${index}`}><TableCell><div className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-lg bg-[var(--surface-elevated)] text-xs font-semibold text-[var(--text-muted)]">{productIcon(index)}</span><div><p className="font-semibold text-[var(--text-primary)]">{String(p.product_name || p.producto || p.sku || "Producto")}</p><p className="text-xs text-[var(--text-muted)]">{String(p.category || p.categoria || "Sin categoría")}</p></div></div></TableCell><TableCell numeric className="font-semibold text-[var(--text-primary)]">{formatNumber(units)}</TableCell><TableCell numeric>{formatCurrency(revenue)}</TableCell><TableCell numeric>{formatCurrency(profit)}</TableCell><TableCell numeric>{formatNumber(stock)} uds</TableCell><TableCell><Badge className={riskTone(risk)}>{risk}</Badge></TableCell><TableCell>{action}</TableCell></TableRow>;
+                const price = productPrice(p);
+                const cost = productCost(p);
+                const explicitProfit = firstMetric(p, ["gross_profit_estimated", "beneficio_estimado"]);
+                const profit = explicitProfit ?? (units !== null && price !== null && cost !== null ? units * Math.max(0, price - cost) : null);
+                const stock = firstMetric(p, ["stock_units_num", "stock"]);
+                const margin = productMargin(p);
+                const risk = units !== null && stock !== null && units > 20 && stock < Math.max(8, units * 0.2) ? "Alto" : units !== null && stock !== null && units > 10 && stock < units * 0.4 ? "Medio" : "Bajo";
+                const action = risk === "Alto" ? "Reponer prioritario" : margin !== null && margin < 20 && units !== null && units > 10 ? "Revisar precio" : "Mantener seguimiento";
+                return <TableRow key={`${p.product_name}-${index}`}><TableCell><div className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-lg bg-[var(--surface-elevated)] text-xs font-semibold text-[var(--text-muted)]">{productIcon(index)}</span><div><p className="font-semibold text-[var(--text-primary)]">{String(p.product_name || p.producto || p.sku || "Producto")}</p><p className="text-xs text-[var(--text-muted)]">{String(p.category || p.categoria || "Sin categoría")}</p></div></div></TableCell><TableCell numeric className="font-semibold text-[var(--text-primary)]">{formatOptionalNumber(units)}</TableCell><TableCell numeric>{formatOptionalCurrency(revenue)}</TableCell><TableCell numeric>{formatOptionalCurrency(profit)}</TableCell><TableCell numeric>{formatOptionalNumber(stock, 0, " uds")}</TableCell><TableCell><Badge className={riskTone(risk)}>{risk}</Badge></TableCell><TableCell>{action}</TableCell></TableRow>;
               })}
             </TableBody>
           </Table>

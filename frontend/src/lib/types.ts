@@ -99,13 +99,13 @@ export type BusinessProfile = {
 };
 
 export type KpiSnapshot = {
-  stock_units?: number;
-  units_sold?: number;
-  inventory_value?: number;
-  gross_margin_pct?: number;
-  gross_profit_estimated?: number;
-  stock_coverage_days?: number;
-  stock_turnover_90d?: number;
+  stock_units?: number | null;
+  units_sold?: number | null;
+  inventory_value?: number | null;
+  gross_margin_pct?: number | null;
+  gross_profit_estimated?: number | null;
+  stock_coverage_days?: number | null;
+  stock_turnover_90d?: number | null;
 };
 
 export type Recommendation = {
@@ -239,7 +239,7 @@ export type BusinessStatus = {
   message: string;
   signals?: {
     high_priority_count?: number;
-    capital_pressure_pct?: number;
+    capital_pressure_pct?: number | null;
     stockout_risk_count?: number;
     dead_stock_count?: number;
     excess_stock_count?: number;
@@ -494,7 +494,7 @@ export type AnalyzeResponse = {
   opportunity_groups?: OpportunityGroup[];
   today_actions?: TodayActionApi[];
   action_plan?: ActionPlanItem[];
-  products_preview: Record<string, string | number>[];
+  products_preview: Record<string, string | number | null>[];
   analysis_mode?: string;
   merge_summary?: MergeSummary;
   status: string;
