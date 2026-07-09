@@ -87,7 +87,9 @@ def _snapshot(
                 "units_sold": 1,
                 "revenue": 1,
                 "gross_margin_pct": 1,
+                "gross_profit_estimated": 1,
                 "stock_coverage_days": 1,
+                "stock_turnover_90d": 1,
                 "inventory_value": 1,
             },
             "snapshot_product_limit": 250,
@@ -190,7 +192,7 @@ class V202DecisionCockpitTests(unittest.TestCase):
     def test_missing_margin_coverage_blocks_artificial_zero_baseline(self):
         baseline = _with_coverage(
             _snapshot("baseline", summary={"average_margin_pct": 0}),
-            gross_margin_pct=0,
+            gross_profit_estimated=0,
         )
         candidate = _snapshot("candidate", summary={"average_margin_pct": 25})
 
@@ -202,7 +204,7 @@ class V202DecisionCockpitTests(unittest.TestCase):
         baseline = _snapshot("baseline", summary={"average_margin_pct": 25})
         candidate = _with_coverage(
             _snapshot("candidate", summary={"average_margin_pct": 0}),
-            gross_margin_pct=0,
+            gross_profit_estimated=0,
         )
 
         result = build_analysis_comparison(baseline, candidate)
@@ -234,7 +236,7 @@ class V202DecisionCockpitTests(unittest.TestCase):
             _snapshot("baseline", summary={"business_score_current": 70}),
             stock_units=1,
             units_sold=0,
-            gross_margin_pct=0,
+            gross_profit_estimated=0,
         )
         candidate = _snapshot("candidate", summary={"business_score_current": 80})
 

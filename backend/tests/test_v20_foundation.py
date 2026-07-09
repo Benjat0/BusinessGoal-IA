@@ -208,7 +208,28 @@ class V20FoundationTests(unittest.TestCase):
         self.assertFalse(summary["display_total_recommended_for_hero"])
 
     def test_snapshot_metric_coverage_preserves_missing_metrics(self):
-        enriched = self._enriched()
+        enriched = enrich_product_metrics(pd.DataFrame([
+            {
+                "sku": "SKU-1",
+                "product_name": "Urban Chair",
+                "category": "Home",
+                "stock_units": 20,
+                "unit_cost": None,
+                "sale_price": None,
+                "units_sold": 0,
+                "revenue": None,
+            },
+            {
+                "sku": "SKU-2",
+                "product_name": "Desk Lamp",
+                "category": "Home",
+                "stock_units": 2,
+                "unit_cost": None,
+                "sale_price": None,
+                "units_sold": 30,
+                "revenue": None,
+            },
+        ]))
         period = {
             "kind": "ASSUMED_WINDOW",
             "start_date": None,
