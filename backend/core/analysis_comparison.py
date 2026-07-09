@@ -26,7 +26,7 @@ METRIC_CATALOG: List[Dict[str, Any]] = [
         "format": "percent",
         "direction": "HIGHER_IS_BETTER",
         "delta_unit": "percentage_points",
-        "required_all_coverage": ["gross_margin_pct"],
+        "required_all_coverage": ["gross_profit_estimated", "revenue"],
     },
     {
         "key": "products_without_sales",
@@ -50,7 +50,7 @@ METRIC_CATALOG: List[Dict[str, Any]] = [
         # Business Score is derived, so require at least two core signals in
         # both snapshots instead of trusting the score value alone.
         "required_min_any_coverage": {
-            "keys": ["stock_units", "units_sold", "gross_margin_pct"],
+            "keys": ["stock_units", "units_sold", "gross_profit_estimated"],
             "min_count": 2,
         },
     },

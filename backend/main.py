@@ -17,7 +17,7 @@ from core.business_profile import business_profile_options, parse_business_profi
 from core.economic_value import build_economic_value_summary
 from core.field_mapper import CANONICAL_FIELDS, detect_columns, normalize_dataframe
 from core.file_validator import FIELD_DESCRIPTIONS, FIELD_LABELS, FIELD_OPTIONS, build_reverse_mapping, infer_file_type, validate_file
-from core.kpi_engine import calculate_summary_kpis, enrich_product_metrics, product_records
+from core.kpi_engine import calculate_metric_coverage, calculate_summary_kpis, enrich_product_metrics, product_records
 from core.multi_file_engine import merge_prepared_files, prepare_business_file
 from core.scenario_engine import build_scenario_simulation
 from core.recommendation_engine import (
@@ -96,7 +96,20 @@ def _sum_impact(recommendations: List[Dict[str, Any]], *, category: str | None =
     return round(total, 2)
 
 
-def _build_business_status(summary: Dict[str, Any], recommendations: List[Dict[str, Any]]) -> Dict[str, Any]:
+def _coverage_sufficient(metric_coverage: Optional[Dict[str, float]], key: str, minimum: float = 0.5) -> bool:
+    if metric_coverage is None:
+        return True
+    value = metric_coverage.get(key)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    return float(value) >= minimum
+
+
+def _build_business_status(
+    summary: Dict[str, Any],
+    recommendations: List[Dict[str, Any]],
+    metric_coverage: Optional[Dict[str, float]] = None,
+) -> Dict[str, Any]:
     # v20 economic classes are not additive; status is based on independent
     # operational signals, never on the heterogeneous legacy impact sum.
     high_priority = sum(1 for rec in recommendations if rec.get("priority") == "high")
@@ -106,26 +119,29 @@ def _build_business_status(summary: Dict[str, Any], recommendations: List[Dict[s
     low_margin = sum(1 for rec in recommendations if rec.get("type") == "low_margin_high_sales")
     cash_release = float(summary.get("cash_release_potential", 0) or 0)
     inventory_value = float(summary.get("total_inventory_value", 0) or 0)
-    capital_pressure = (cash_release / inventory_value) if inventory_value > 0 else 0
+    inventory_coverage_sufficient = _coverage_sufficient(metric_coverage, "inventory_value")
+    capital_pressure = (cash_release / inventory_value) if inventory_coverage_sufficient and inventory_value > 0 else None
     recommendation_count = len(recommendations)
+    high_capital_pressure = capital_pressure is not None and capital_pressure >= 0.6
+    medium_capital_pressure = capital_pressure is not None and capital_pressure >= 0.25
 
-    if high_priority >= 5 or capital_pressure >= 0.6 or (stockout_risks >= 3 and high_priority >= 2):
+    if high_priority >= 5 or high_capital_pressure or (stockout_risks >= 3 and high_priority >= 2):
         status = "Atención prioritaria"
         tone = "warning"
-        if capital_pressure >= 0.6:
+        if high_capital_pressure:
             message = "El análisis activo muestra una presión relevante de capital en inventario. Conviene priorizar las decisiones asociadas a stock y rotación."
         elif stockout_risks >= 3:
             message = "Se observan riesgos operativos asociados a disponibilidad en productos con demanda."
         else:
             message = "El análisis activo concentra varias señales económicas y operativas que requieren priorización."
-    elif high_priority > 0 or capital_pressure >= 0.25 or recommendation_count > 0:
+    elif high_priority > 0 or medium_capital_pressure or recommendation_count > 0:
         status = "Mejora disponible"
         tone = "info"
         if low_margin > 0:
             message = "Existen oportunidades de revisión de margen en productos con actividad comercial."
         elif stockout_risks > 0:
             message = "Se observan señales de disponibilidad que conviene revisar antes de tomar decisiones operativas."
-        elif dead_stock > 0 or excess_stock > 0 or capital_pressure >= 0.25:
+        elif dead_stock > 0 or excess_stock > 0 or medium_capital_pressure:
             message = "El análisis activo identifica presión de inventario y rotación que puede revisarse de forma priorizada."
         else:
             message = "El análisis activo muestra oportunidades de mejora que conviene revisar por prioridad."
@@ -140,7 +156,7 @@ def _build_business_status(summary: Dict[str, Any], recommendations: List[Dict[s
         "message": message,
         "signals": {
             "high_priority_count": high_priority,
-            "capital_pressure_pct": round(capital_pressure * 100, 2),
+            "capital_pressure_pct": round(capital_pressure * 100, 2) if capital_pressure is not None else None,
             "stockout_risk_count": stockout_risks,
             "dead_stock_count": dead_stock,
             "excess_stock_count": excess_stock,
@@ -150,7 +166,11 @@ def _build_business_status(summary: Dict[str, Any], recommendations: List[Dict[s
     }
 
 
-def _calculate_business_score(summary: Dict[str, Any], recommendations: List[Dict[str, Any]]) -> Dict[str, int]:
+def _calculate_business_score(
+    summary: Dict[str, Any],
+    recommendations: List[Dict[str, Any]],
+    metric_coverage: Optional[Dict[str, float]] = None,
+) -> Dict[str, int]:
     high_priority = sum(1 for rec in recommendations if rec.get("priority") == "high")
     risks = sum(1 for rec in recommendations if rec.get("type") == "stockout_risk")
     dead_stock = sum(1 for rec in recommendations if rec.get("type") == "dead_stock")
@@ -160,7 +180,12 @@ def _calculate_business_score(summary: Dict[str, Any], recommendations: List[Dic
     margin = float(summary.get("average_margin_pct", 0) or 0)
     inventory_value = float(summary.get("total_inventory_value", 0) or 0)
     cash_release = float(summary.get("cash_release_potential", 0) or 0)
-    immobilized_pressure = (cash_release / inventory_value * 100) if inventory_value else 0
+    inventory_coverage_sufficient = _coverage_sufficient(metric_coverage, "inventory_value")
+    margin_coverage_sufficient = (
+        _coverage_sufficient(metric_coverage, "gross_profit_estimated")
+        and _coverage_sufficient(metric_coverage, "revenue")
+    )
+    immobilized_pressure = (cash_release / inventory_value * 100) if inventory_coverage_sufficient and inventory_value else 0
 
     # The score is an executive communication indicator, not an accounting metric.
     # It intentionally penalizes risks and capital pressure without making the UI feel punitive.
@@ -172,10 +197,11 @@ def _calculate_business_score(summary: Dict[str, Any], recommendations: List[Dic
     score -= min(4, low_margin * 1)
     score -= min(10, immobilized_pressure / 12)
 
-    if margin >= 45:
-        score += 4
-    elif margin < 20:
-        score -= 6
+    if margin_coverage_sufficient:
+        if margin >= 45:
+            score += 4
+        elif margin < 20:
+            score -= 6
 
     current = int(max(45, min(98, round(score))))
     after_actions = int(max(current, min(100, current + 8 + min(8, len(recommendations)))))
@@ -241,6 +267,7 @@ def _build_analysis_response(
     analysis_created_at = _utc_now_iso()
     profile = business_profile or parse_business_profile()
     enriched = enrich_product_metrics(normalized_df)
+    metric_coverage = calculate_metric_coverage(enriched)
     analysis_period = build_analysis_period(
         detected_columns=detected_columns,
         column_mapping=column_mapping,
@@ -274,7 +301,7 @@ def _build_analysis_response(
         "immobilized_capital_pct": round((cash_release / inventory_value * 100) if inventory_value else 0, 2),
         "estimated_profit_after_actions": round(float(summary.get("total_gross_profit_estimated", 0) or 0) + margin_improvement + sales_protection, 2),
     })
-    summary.update(_calculate_business_score(summary, recommendations))
+    summary.update(_calculate_business_score(summary, recommendations, metric_coverage=metric_coverage))
 
     executive_summary = build_executive_briefing(summary, consolidated_recommendations, opportunity_groups)
     executive_summary["business_context"] = f"Perfil aplicado: {profile.get('sector_label')} · Objetivo: {profile.get('analysis_goal_label')} · Margen objetivo: {profile.get('target_margin_pct')}%."
@@ -317,6 +344,7 @@ def _build_analysis_response(
         mapping_confidence=mapping_confidence,
         validation=validation,
         merge_summary=merge_summary,
+        metric_coverage=metric_coverage,
     )
 
     response = {
@@ -333,7 +361,7 @@ def _build_analysis_response(
         "missing_required_fields": validation.get("missing_required_fields", []),
         "file_validation": validation,
         "summary_kpis": summary,
-        "business_status": _build_business_status(summary, recommendations),
+        "business_status": _build_business_status(summary, recommendations, metric_coverage=metric_coverage),
         "business_profile": profile,
         "executive_summary": executive_summary,
         "impact_breakdown": impact_breakdown,

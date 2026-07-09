@@ -48,22 +48,50 @@ def _product_label(row: pd.Series) -> str:
     return "Producto sin nombre"
 
 
-def _kpi_snapshot(row: pd.Series) -> Dict[str, float]:
+def _available(row: pd.Series, metric: str) -> bool:
+    value = row.get(f"{metric}_available")
+    if value is None or pd.isna(value):
+        return False
+    return bool(value)
+
+
+def _row_number(row: pd.Series, column: str, default: float = 0.0) -> float:
+    value = row.get(column)
+    if value is None or pd.isna(value):
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _optional_row_number(row: pd.Series, metric: str, column: str, digits: int = 2) -> float | None:
+    if not _available(row, metric):
+        return None
+    try:
+        return round(float(row.get(column)), digits)
+    except (TypeError, ValueError):
+        return None
+
+
+def _kpi_snapshot(row: pd.Series) -> Dict[str, float | None]:
     return {
-        "stock_units": round(float(row.get("stock_units_num", 0) or 0), 2),
-        "units_sold": round(float(row.get("units_sold_num", 0) or 0), 2),
-        "inventory_value": round(float(row.get("inventory_value", 0) or 0), 2),
-        "gross_margin_pct": round(float(row.get("gross_margin_pct", 0) or 0), 2),
-        "gross_profit_estimated": round(float(row.get("gross_profit_estimated", 0) or 0), 2),
-        "stock_coverage_days": round(float(row.get("stock_coverage_days", 0) or 0), 2),
-        "stock_turnover_90d": round(float(row.get("stock_turnover_90d", 0) or 0), 4),
+        "stock_units": _optional_row_number(row, "stock_units", "stock_units_num"),
+        "units_sold": _optional_row_number(row, "units_sold", "units_sold_num"),
+        "inventory_value": _optional_row_number(row, "inventory_value", "inventory_value"),
+        "gross_margin_pct": _optional_row_number(row, "gross_margin_pct", "gross_margin_pct"),
+        "gross_profit_estimated": _optional_row_number(row, "gross_profit_estimated", "gross_profit_estimated"),
+        "stock_coverage_days": _optional_row_number(row, "stock_coverage_days", "stock_coverage_days"),
+        "stock_turnover_90d": _optional_row_number(row, "stock_turnover_90d", "stock_turnover_90d", digits=4),
     }
 
 
 def _margin_improvement_impact(row: pd.Series, target_margin_pct: float) -> float:
-    sale_price = float(row.get("sale_price_num", 0) or 0)
-    sold = float(row.get("units_sold_num", 0) or 0)
-    current_margin = float(row.get("gross_margin_pct", 0) or 0)
+    if not (_available(row, "sale_price") and _available(row, "units_sold") and _available(row, "gross_margin_pct")):
+        return 0.0
+    sale_price = _row_number(row, "sale_price_num")
+    sold = _row_number(row, "units_sold_num")
+    current_margin = _row_number(row, "gross_margin_pct")
     if sale_price <= 0 or sold <= 0 or current_margin <= 0:
         return 0.0
     gap_pct = max(0.0, target_margin_pct - current_margin)
@@ -131,7 +159,11 @@ def build_recommendations(enriched: pd.DataFrame, business_profile: Optional[Dic
         return recommendations
 
     profile = business_profile or {}
-    margin_median = float(enriched["gross_margin_pct"].median()) if "gross_margin_pct" in enriched else 0
+    if "gross_margin_pct" in enriched and "gross_margin_pct_available" in enriched:
+        valid_margin = enriched.loc[enriched["gross_margin_pct_available"].fillna(False), "gross_margin_pct"]
+        margin_median = float(valid_margin.median()) if not valid_margin.empty else 0
+    else:
+        margin_median = 0
     target_margin_pct = float(profile.get("target_margin_pct", max(25.0, min(45.0, margin_median))) or 35.0)
     low_margin_threshold = float(profile.get("low_margin_pct", max(15.0, margin_median * 0.7)) or 20.0)
     max_coverage_days = float(profile.get("max_coverage_days", 180.0) or 180.0)
@@ -145,15 +177,21 @@ def build_recommendations(enriched: pd.DataFrame, business_profile: Optional[Dic
 
     for _, row in enriched.iterrows():
         product = _product_label(row)
-        stock = float(row.get("stock_units_num", 0) or 0)
-        sold = float(row.get("units_sold_num", 0) or 0)
-        inventory_value = float(row.get("inventory_value", 0) or 0)
-        margin_pct = float(row.get("gross_margin_pct", 0) or 0)
-        coverage_days = float(row.get("stock_coverage_days", 0) or 0)
-        gross_profit = float(row.get("gross_profit_estimated", 0) or 0)
+        stock = _row_number(row, "stock_units_num")
+        sold = _row_number(row, "units_sold_num")
+        inventory_value = _row_number(row, "inventory_value")
+        margin_pct = _row_number(row, "gross_margin_pct")
+        coverage_days = _row_number(row, "stock_coverage_days")
+        gross_profit = _row_number(row, "gross_profit_estimated")
+        unit_margin = _row_number(row, "unit_margin")
         snapshot = _kpi_snapshot(row)
 
-        if stock > 0 and sold <= 0 and inventory_value > 0:
+        dead_stock_available = (
+            _available(row, "stock_units")
+            and _available(row, "units_sold")
+            and _available(row, "inventory_value")
+        )
+        if dead_stock_available and stock > 0 and sold == 0 and inventory_value > 0:
             impact = round(inventory_value, 2)
             recommendations.append({
                 "type": "dead_stock",
@@ -180,7 +218,13 @@ def build_recommendations(enriched: pd.DataFrame, business_profile: Optional[Dic
             })
             continue
 
-        if stock > 0 and sold > 0 and coverage_days >= max_coverage_days and inventory_value > 0:
+        excess_stock_available = (
+            _available(row, "stock_units")
+            and _available(row, "units_sold")
+            and _available(row, "inventory_value")
+            and _available(row, "stock_coverage_days")
+        )
+        if excess_stock_available and stock > 0 and sold > 0 and coverage_days >= max_coverage_days and inventory_value > 0:
             impact = round(inventory_value, 2)
             recommendations.append({
                 "type": "excess_stock",
@@ -207,7 +251,13 @@ def build_recommendations(enriched: pd.DataFrame, business_profile: Optional[Dic
             })
 
         margin_impact = _margin_improvement_impact(row, target_margin_pct)
-        if sold >= min_sales_for_margin_alert and margin_pct > 0 and margin_pct < low_margin_threshold:
+        low_margin_available = (
+            _available(row, "units_sold")
+            and _available(row, "gross_margin_pct")
+            and _available(row, "gross_profit_estimated")
+            and _available(row, "sale_price")
+        )
+        if low_margin_available and sold >= min_sales_for_margin_alert and margin_pct > 0 and margin_pct < low_margin_threshold:
             impact = round(max(margin_impact, gross_profit * 0.15, 50), 2)
             recommendations.append({
                 "type": "low_margin_high_sales",
@@ -233,8 +283,16 @@ def build_recommendations(enriched: pd.DataFrame, business_profile: Optional[Dic
                 "kpi_snapshot": snapshot,
             })
 
-        if sold >= min_sales_for_restock and stock <= max(3, sold * stockout_sensitivity):
-            impact = round(max(gross_profit, sold * max(row.get("unit_margin", 0) or 0, 0) * 0.5), 2)
+        stockout_available = (
+            _available(row, "stock_units")
+            and _available(row, "units_sold")
+            and _available(row, "gross_profit_estimated")
+            and _available(row, "unit_margin")
+        )
+        if stockout_available and sold >= min_sales_for_restock and stock <= max(3, sold * stockout_sensitivity):
+            impact = round(max(gross_profit, sold * max(unit_margin, 0) * 0.5), 2)
+            if impact <= 0:
+                continue
             recommendations.append({
                 "type": "stockout_risk",
                 "category": "sales_protection",

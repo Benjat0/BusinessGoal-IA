@@ -4,6 +4,7 @@ from typing import Any, Dict, List
 
 import pandas as pd
 
+from .kpi_engine import calculate_metric_coverage
 from .utils import normalize_text
 
 
@@ -24,6 +25,13 @@ def _optional_number(value: Any, *, available: bool, digits: int = 2) -> float |
         return round(float(value), digits)
     except Exception:
         return None
+
+
+def _row_available(row: pd.Series, column: str) -> bool:
+    value = row.get(column)
+    if value is None or pd.isna(value):
+        return False
+    return bool(value)
 
 
 def _product_ref(row: pd.Series) -> Dict[str, Any]:
@@ -54,33 +62,20 @@ def _economic_status(row: pd.Series) -> str:
     sold = _round_number(row.get("units_sold_num"))
     coverage = _round_number(row.get("stock_coverage_days"))
     margin = _round_number(row.get("gross_margin_pct"))
-    if stock > 0 and sold <= 0:
+    stock_available = _row_available(row, "stock_units_available")
+    sold_available = _row_available(row, "units_sold_available")
+    coverage_available = _row_available(row, "stock_coverage_days_available")
+    margin_available = _row_available(row, "gross_margin_pct_available")
+
+    if stock_available and sold_available and stock > 0 and sold == 0:
         return "NO_RECENT_SALES"
-    if coverage >= 180:
+    if coverage_available and coverage >= 180:
         return "EXCESS_COVERAGE"
-    if sold >= 20 and stock <= max(3, sold * 0.15):
+    if stock_available and sold_available and sold >= 20 and stock <= max(3, sold * 0.15):
         return "STOCKOUT_RISK"
-    if sold >= 10 and 0 < margin < 20:
+    if sold_available and margin_available and sold >= 10 and 0 < margin < 20:
         return "LOW_MARGIN_WITH_DEMAND"
     return "HEALTHY_OR_UNCLASSIFIED"
-
-
-def _metric_coverage(products: List[Dict[str, Any]]) -> Dict[str, float]:
-    metric_keys = [
-        "stock_units",
-        "units_sold",
-        "revenue",
-        "gross_margin_pct",
-        "stock_coverage_days",
-        "inventory_value",
-    ]
-    if not products:
-        return {key: 0.0 for key in metric_keys}
-    coverage: Dict[str, float] = {}
-    for key in metric_keys:
-        present = sum(1 for product in products if product["metrics"].get(key) not in (None, ""))
-        coverage[key] = round(present / len(products), 4)
-    return coverage
 
 
 def build_analysis_snapshot(
@@ -97,24 +92,9 @@ def build_analysis_snapshot(
     mapping_confidence: Dict[str, float],
     validation: Dict[str, Any],
     merge_summary: Dict[str, Any] | None,
+    metric_coverage: Dict[str, float] | None = None,
 ) -> Dict[str, Any]:
-    metric_availability = {
-        "stock_units": bool(column_mapping.get("stock_units")),
-        "units_sold": bool(column_mapping.get("units_sold")),
-        "revenue": bool(
-            column_mapping.get("revenue")
-            or (column_mapping.get("units_sold") and column_mapping.get("sale_price"))
-        ),
-        "gross_margin_pct": bool(column_mapping.get("unit_cost") and column_mapping.get("sale_price")),
-        "gross_profit_estimated": bool(
-            column_mapping.get("units_sold")
-            and column_mapping.get("unit_cost")
-            and column_mapping.get("sale_price")
-        ),
-        "stock_coverage_days": bool(column_mapping.get("stock_units") and column_mapping.get("units_sold")),
-        "stock_turnover_90d": bool(column_mapping.get("stock_units") and column_mapping.get("units_sold")),
-        "inventory_value": bool(column_mapping.get("stock_units") and column_mapping.get("unit_cost")),
-    }
+    full_metric_coverage = metric_coverage if metric_coverage is not None else calculate_metric_coverage(enriched)
 
     product_metrics: List[Dict[str, Any]] = []
     identity_warnings = 0
@@ -126,14 +106,14 @@ def build_analysis_snapshot(
             "category": row.get("category") if pd.notna(row.get("category")) else None,
             "supplier": row.get("supplier") if pd.notna(row.get("supplier")) else None,
             "metrics": {
-                "stock_units": _optional_number(row.get("stock_units_num"), available=metric_availability["stock_units"]),
-                "units_sold": _optional_number(row.get("units_sold_num"), available=metric_availability["units_sold"]),
-                "revenue": _optional_number(row.get("estimated_revenue"), available=metric_availability["revenue"]),
-                "gross_margin_pct": _optional_number(row.get("gross_margin_pct"), available=metric_availability["gross_margin_pct"]),
-                "gross_profit_estimated": _optional_number(row.get("gross_profit_estimated"), available=metric_availability["gross_profit_estimated"]),
-                "stock_coverage_days": _optional_number(row.get("stock_coverage_days"), available=metric_availability["stock_coverage_days"]),
-                "stock_turnover_90d": _optional_number(row.get("stock_turnover_90d"), available=metric_availability["stock_turnover_90d"], digits=4),
-                "inventory_value": _optional_number(row.get("inventory_value"), available=metric_availability["inventory_value"]),
+                "stock_units": _optional_number(row.get("stock_units_num"), available=_row_available(row, "stock_units_available")),
+                "units_sold": _optional_number(row.get("units_sold_num"), available=_row_available(row, "units_sold_available")),
+                "revenue": _optional_number(row.get("estimated_revenue"), available=_row_available(row, "estimated_revenue_available")),
+                "gross_margin_pct": _optional_number(row.get("gross_margin_pct"), available=_row_available(row, "gross_margin_pct_available")),
+                "gross_profit_estimated": _optional_number(row.get("gross_profit_estimated"), available=_row_available(row, "gross_profit_estimated_available")),
+                "stock_coverage_days": _optional_number(row.get("stock_coverage_days"), available=_row_available(row, "stock_coverage_days_available")),
+                "stock_turnover_90d": _optional_number(row.get("stock_turnover_90d"), available=_row_available(row, "stock_turnover_90d_available"), digits=4),
+                "inventory_value": _optional_number(row.get("inventory_value"), available=_row_available(row, "inventory_value_available")),
             },
             "economic_status": _economic_status(row),
         })
@@ -205,7 +185,7 @@ def build_analysis_snapshot(
             },
             "join_strategy": (merge_summary or {}).get("join_strategy"),
             "identity_warnings": identity_warnings,
-            "metric_coverage": _metric_coverage(product_metrics),
+            "metric_coverage": full_metric_coverage,
             "snapshot_product_limit": MAX_SNAPSHOT_PRODUCTS,
         },
     }
