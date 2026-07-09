@@ -1,20 +1,24 @@
 from __future__ import annotations
 
+import json
+import math
 import sys
 import unittest
 from pathlib import Path
 
 import pandas as pd
+from fastapi.encoders import jsonable_encoder
+from starlette.responses import JSONResponse
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from main import _build_business_status, _calculate_business_score
+from main import _build_analysis_response, _build_business_status, _calculate_business_score
 from core.analysis_comparison import build_analysis_comparison
 from core.analysis_snapshot import build_analysis_snapshot
 from core.economic_value import build_economic_value_summary
-from core.kpi_engine import calculate_metric_coverage, calculate_summary_kpis, enrich_product_metrics
+from core.kpi_engine import calculate_metric_coverage, calculate_summary_kpis, enrich_product_metrics, product_records
 from core.recommendation_engine import build_recommendations
 from core.utils import parse_business_number, parse_business_number_nullable
 
@@ -70,6 +74,19 @@ def _profile(**overrides: float) -> dict:
     }
     profile.update(overrides)
     return profile
+
+
+def _assert_json_safe(testcase: unittest.TestCase, value: object) -> None:
+    if isinstance(value, dict):
+        for child in value.values():
+            _assert_json_safe(testcase, child)
+        return
+    if isinstance(value, list):
+        for child in value:
+            _assert_json_safe(testcase, child)
+        return
+    if isinstance(value, float):
+        testcase.assertTrue(math.isfinite(value), f"Non-finite float found: {value!r}")
 
 
 class DataAvailabilityTests(unittest.TestCase):
@@ -271,6 +288,145 @@ class DataAvailabilityTests(unittest.TestCase):
         result = build_analysis_comparison(baseline, candidate)
 
         self.assertNotIn("average_margin_pct", [change["key"] for change in result["changes"]])
+
+    def test_product_records_preserve_missing_and_observed_zero_units_sold(self):
+        enriched = enrich_product_metrics(pd.DataFrame([
+            {"sku": "SKU-A", "product_name": "A", "units_sold": 10},
+            {"sku": "SKU-B", "product_name": "B", "units_sold": None},
+            {"sku": "SKU-C", "product_name": "C", "units_sold": 0},
+        ]))
+
+        records = product_records(enriched)
+
+        self.assertEqual(records[0]["units_sold_num"], 10.0)
+        self.assertIsNone(records[1]["units_sold_num"])
+        self.assertEqual(records[2]["units_sold_num"], 0.0)
+
+    def test_product_records_missing_derived_metrics_are_none_not_zero_or_nan(self):
+        enriched = enrich_product_metrics(pd.DataFrame([
+            {
+                "sku": "SKU-A",
+                "product_name": "Missing economics",
+                "stock_units": 10,
+                "unit_cost": None,
+                "sale_price": None,
+                "units_sold": None,
+            }
+        ]))
+
+        record = product_records(enriched)[0]
+
+        self.assertIsNone(record["unit_cost_num"])
+        self.assertIsNone(record["sale_price_num"])
+        self.assertIsNone(record["inventory_value"])
+        self.assertIsNone(record["gross_margin_pct"])
+        self.assertIsNone(record["gross_profit_estimated"])
+        self.assertIsNone(record["stock_coverage_days"])
+        self.assertIsNone(record["stock_turnover_90d"])
+
+    def test_product_records_are_json_safe_and_drop_non_finite_values(self):
+        enriched = enrich_product_metrics(pd.DataFrame([
+            {
+                "sku": "SKU-A",
+                "product_name": "Finite",
+                "stock_units": 10,
+                "unit_cost": 2,
+                "sale_price": 5,
+                "units_sold": 5,
+            }
+        ]))
+        enriched.loc[0, "gross_margin_pct"] = float("nan")
+        enriched.loc[0, "gross_profit_estimated"] = float("inf")
+        enriched.loc[0, "stock_coverage_days"] = float("-inf")
+
+        records = product_records(enriched)
+        record = records[0]
+
+        self.assertIsNone(record["gross_margin_pct"])
+        self.assertIsNone(record["gross_profit_estimated"])
+        self.assertIsNone(record["stock_coverage_days"])
+        _assert_json_safe(self, records)
+        json.dumps(records, allow_nan=False)
+
+    def test_product_records_preserve_observed_base_zero_values(self):
+        enriched = enrich_product_metrics(pd.DataFrame([
+            {
+                "sku": "SKU-Z",
+                "product_name": "Zeros",
+                "stock_units": 0,
+                "unit_cost": 0,
+                "sale_price": 0,
+                "units_sold": 0,
+                "revenue": 0,
+            }
+        ]))
+
+        record = product_records(enriched)[0]
+
+        self.assertEqual(record["stock_units_num"], 0.0)
+        self.assertEqual(record["unit_cost_num"], 0.0)
+        self.assertEqual(record["sale_price_num"], 0.0)
+        self.assertEqual(record["units_sold_num"], 0.0)
+        self.assertEqual(enriched.loc[0, "revenue_num"], 0.0)
+        self.assertTrue(bool(enriched.loc[0, "revenue_available"]))
+
+    def test_sparse_analysis_response_is_strict_json_serializable(self):
+        normalized = pd.DataFrame([
+            {
+                "sku": "SKU-A",
+                "product_name": "Complete",
+                "stock_units": 10,
+                "unit_cost": 4,
+                "sale_price": 10,
+                "units_sold": 8,
+                "revenue": None,
+            },
+            {
+                "sku": "SKU-B",
+                "product_name": "Missing sales",
+                "stock_units": 5,
+                "unit_cost": 3,
+                "sale_price": 9,
+                "units_sold": None,
+                "revenue": None,
+            },
+            {
+                "sku": "SKU-C",
+                "product_name": "Missing cost",
+                "stock_units": 7,
+                "unit_cost": None,
+                "sale_price": 11,
+                "units_sold": 0,
+                "revenue": 0,
+            },
+        ])
+
+        response = _build_analysis_response(
+            file_name="sparse.csv",
+            rows=len(normalized),
+            columns=len(normalized.columns),
+            detected_columns=list(normalized.columns),
+            column_mapping={
+                "sku": "sku",
+                "product_name": "product_name",
+                "stock_units": "stock_units",
+                "unit_cost": "unit_cost",
+                "sale_price": "sale_price",
+                "units_sold": "units_sold",
+                "revenue": "revenue",
+            },
+            mapping_confidence={},
+            validation={"quality_score": 90, "quality_label": "Alta", "missing_required_fields": []},
+            normalized_df=normalized,
+        )
+
+        self.assertIn("products_preview", response)
+        self.assertIsNone(response["products_preview"][1]["units_sold_num"])
+        self.assertIsNone(response["products_preview"][2]["unit_cost_num"])
+        encoded = jsonable_encoder(response)
+        _assert_json_safe(self, encoded)
+        json.dumps(encoded, allow_nan=False)
+        JSONResponse(content=encoded).body
 
 
 if __name__ == "__main__":

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+from numbers import Integral, Real
 from typing import Any, Dict, List
 
 import pandas as pd
@@ -184,6 +186,48 @@ def calculate_summary_kpis(enriched: pd.DataFrame) -> Dict[str, Any]:
     }
 
 
+def _json_safe_record_value(value: Any) -> Any:
+    if value is None:
+        return None
+
+    try:
+        missing = pd.isna(value)
+    except (TypeError, ValueError):
+        missing = False
+    if not isinstance(missing, (list, tuple, pd.Series, pd.DataFrame)):
+        try:
+            if bool(missing):
+                return None
+        except (TypeError, ValueError):
+            pass
+
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, Integral):
+        return int(value)
+    if isinstance(value, Real):
+        numeric = float(value)
+        return numeric if math.isfinite(numeric) else None
+    if isinstance(value, str):
+        return value
+
+    if hasattr(value, "item"):
+        try:
+            return _json_safe_record_value(value.item())
+        except (TypeError, ValueError):
+            return None
+
+    return str(value)
+
+
+def _sanitize_records_for_json(records: pd.DataFrame) -> List[Dict[str, Any]]:
+    safe_records = records.astype(object).where(pd.notna(records), None)
+    return [
+        {key: _json_safe_record_value(value) for key, value in row.items()}
+        for row in safe_records.to_dict(orient="records")
+    ]
+
+
 def product_records(enriched: pd.DataFrame, limit: int = 100) -> List[Dict[str, Any]]:
     visible_columns = [
         "sku",
@@ -213,10 +257,10 @@ def product_records(enriched: pd.DataFrame, limit: int = 100) -> List[Dict[str, 
         "stock_coverage_days": "stock_coverage_days_available",
         "stock_turnover_90d": "stock_turnover_90d_available",
     }
+    records = records.astype(object)
     for value_column, availability_column in availability_columns.items():
         if value_column not in records.columns or availability_column not in enriched.columns:
             continue
         available = enriched[availability_column].head(limit).fillna(False).astype(bool)
         records.loc[~available, value_column] = None
-    output = records.where(pd.notna(records), None).to_dict(orient="records")
-    return output
+    return _sanitize_records_for_json(records)
