@@ -5,7 +5,7 @@ from typing import Any, Dict, List
 import pandas as pd
 
 from .kpi_engine import calculate_metric_coverage
-from .utils import normalize_text
+from .product_identity import build_product_ref
 
 
 MAX_SNAPSHOT_PRODUCTS = 250
@@ -32,29 +32,6 @@ def _row_available(row: pd.Series, column: str) -> bool:
     if value is None or pd.isna(value):
         return False
     return bool(value)
-
-
-def _product_ref(row: pd.Series) -> Dict[str, Any]:
-    sku = row.get("sku")
-    name = row.get("product_name")
-    normalized_name = normalize_text(name)
-    if pd.notna(sku) and str(sku).strip() not in {"", "None"}:
-        return {
-            "identity_key": f"sku:{normalize_text(sku)}",
-            "identity_type": "SKU",
-            "identity_confidence": 0.96,
-            "sku": str(sku),
-            "name": str(name) if pd.notna(name) else None,
-            "warnings": [],
-        }
-    return {
-        "identity_key": f"name:{normalized_name}",
-        "identity_type": "NORMALIZED_NAME",
-        "identity_confidence": 0.62 if normalized_name else 0.2,
-        "sku": None,
-        "name": str(name) if pd.notna(name) else None,
-        "warnings": ["product_identity_uses_normalized_name"],
-    }
 
 
 def _economic_status(row: pd.Series) -> str:
@@ -99,7 +76,7 @@ def build_analysis_snapshot(
     product_metrics: List[Dict[str, Any]] = []
     identity_warnings = 0
     for _, row in enriched.head(MAX_SNAPSHOT_PRODUCTS).iterrows():
-        ref = _product_ref(row)
+        ref = build_product_ref(row)
         identity_warnings += len(ref["warnings"])
         product_metrics.append({
             "product_ref": ref,

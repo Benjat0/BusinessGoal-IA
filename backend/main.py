@@ -14,6 +14,7 @@ from core.analysis_period import build_analysis_period
 from core.analysis_comparison import build_analysis_comparison
 from core.analysis_snapshot import build_analysis_snapshot
 from core.business_profile import business_profile_options, parse_business_profile
+from core.decision_engine import build_decisions
 from core.economic_value import build_economic_value_summary
 from core.field_mapper import CANONICAL_FIELDS, detect_columns, normalize_dataframe
 from core.file_validator import FIELD_DESCRIPTIONS, FIELD_LABELS, FIELD_OPTIONS, build_reverse_mapping, infer_file_type, validate_file
@@ -277,6 +278,12 @@ def _build_analysis_response(
     summary = calculate_summary_kpis(enriched)
     recommendations = build_recommendations(enriched, business_profile=profile)
     consolidated_recommendations = build_consolidated_recommendations(recommendations)
+    decisions = build_decisions(
+        analysis_id=analysis_id,
+        analysis_created_at=analysis_created_at,
+        consolidated_recommendations=consolidated_recommendations,
+        enriched=enriched,
+    )
     action_plan = build_action_plan(consolidated_recommendations)
     opportunity_groups = build_opportunity_groups(recommendations)
     today_actions = build_today_actions(consolidated_recommendations)
@@ -369,6 +376,7 @@ def _build_analysis_response(
         "analysis_snapshot": analysis_snapshot,
         "trust_layer": build_trust_layer(summary, recommendations, consolidated_recommendations),
         "scenario_simulation": scenario_simulation,
+        "decisions": decisions,
         "recommendations": recommendations,
         "consolidated_recommendations": consolidated_recommendations,
         "opportunity_groups": opportunity_groups,
