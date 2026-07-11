@@ -489,6 +489,7 @@ export type AnalyzeResponse = {
   analysis_snapshot?: AnalysisSnapshot;
   trust_layer?: TrustLayer;
   scenario_simulation?: ScenarioSimulation;
+  decisions?: Decision[];
   recommendations: Recommendation[];
   consolidated_recommendations?: Recommendation[];
   opportunity_groups?: OpportunityGroup[];

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AppShell, type TabId } from "@/components/layout";
 import {
   Badge,
@@ -21,12 +21,22 @@ import {
   type ComparisonUnavailableReason,
 } from "@/features/home/decision-cockpit";
 import { analyzeBatchFiles, compareAnalysisSnapshots, inspectBatchFiles } from "@/lib/api";
+import {
+  DECISIONS_STORAGE_KEY,
+  getDecisionCenterMode,
+  getResultDecisions,
+  isDemoId,
+  mergePersistableDecisions,
+  normalizeStoredDecisions,
+  type DecisionCenterMode,
+} from "@/lib/decision-center";
 import { cn } from "@/lib/ui";
 import type {
   AnalysisComparison,
   AnalysisSnapshot,
   AnalyzeResponse,
   BusinessProfile,
+  Decision,
   InspectBatchResponse,
   Recommendation,
   ScenarioSimulation,
@@ -55,6 +65,101 @@ type HistoryItem = {
 type Toast = { type: "success" | "error" | "info"; message: string } | null;
 
 type ProductRow = Record<string, string | number | null | undefined>;
+
+const HISTORY_STORAGE_KEY = "businessgoal-history-final";
+
+function canUseLocalStorage() {
+  if (typeof window === "undefined") return false;
+
+  try {
+    return typeof window.localStorage !== "undefined";
+  } catch {
+    return false;
+  }
+}
+
+function removeStorageItem(key: string) {
+  if (!canUseLocalStorage()) return;
+
+  try {
+    window.localStorage.removeItem(key);
+  } catch {
+    // Storage can be unavailable in private or restricted browser contexts.
+  }
+}
+
+function readJsonStorage<T>(key: string, fallback: T, normalize: (value: unknown) => T | null): T {
+  if (!canUseLocalStorage()) return fallback;
+
+  try {
+    const stored = window.localStorage.getItem(key);
+    if (!stored) return fallback;
+
+    const normalized = normalize(JSON.parse(stored));
+    if (normalized === null) {
+      removeStorageItem(key);
+      return fallback;
+    }
+
+    return normalized;
+  } catch {
+    removeStorageItem(key);
+    return fallback;
+  }
+}
+
+function writeJsonStorage(key: string, value: unknown) {
+  if (!canUseLocalStorage()) return;
+
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Best effort only: persistence must never break the active render flow.
+  }
+}
+
+function isHistoryItem(value: unknown): value is HistoryItem {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+
+  const item = value as Record<string, unknown>;
+  return (
+    typeof item.id === "string"
+    && typeof item.createdAt === "string"
+    && Array.isArray(item.fileNames)
+    && item.fileNames.every((fileName) => typeof fileName === "string")
+    && typeof item.potential === "number"
+    && typeof item.opportunities === "number"
+    && typeof item.score === "number"
+  );
+}
+
+function readHistoryStorage() {
+  return readJsonStorage<HistoryItem[]>(HISTORY_STORAGE_KEY, [], (value) => {
+    if (!Array.isArray(value)) return null;
+    return value.filter(isHistoryItem);
+  });
+}
+
+function writeHistoryStorage(history: HistoryItem[]) {
+  writeJsonStorage(HISTORY_STORAGE_KEY, history.filter((item) => !isDemoId(item.id)));
+}
+
+function readDecisionStorage() {
+  return readJsonStorage<Decision[]>(DECISIONS_STORAGE_KEY, [], (value) => {
+    if (!Array.isArray(value)) return null;
+    return normalizeStoredDecisions(value);
+  });
+}
+
+function writeDecisionStorage(decisions: Decision[]) {
+  const persistableDecisions = mergePersistableDecisions(decisions);
+  if (!persistableDecisions.length) {
+    removeStorageItem(DECISIONS_STORAGE_KEY);
+    return;
+  }
+
+  writeJsonStorage(DECISIONS_STORAGE_KEY, persistableDecisions);
+}
 
 const DEFAULT_BUSINESS_PROFILE: BusinessProfile = {
   company_name: "Empresa demo",
@@ -349,7 +454,7 @@ function getSummary(result: AnalyzeResponse | null) {
 
 function realHistoryItems(history: HistoryItem[]) {
   return history
-    .filter((item) => !item.id.startsWith("demo") && item.reportSnapshot?.analysis_snapshot)
+    .filter((item) => !isDemoId(item.id) && item.reportSnapshot?.analysis_snapshot)
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 }
 
@@ -399,6 +504,10 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<Toast>(null);
   const [history, setHistory] = useState<HistoryItem[]>(DEMO_HISTORY_ITEMS);
+  const [storedDecisions, setStoredDecisions] = useState<Decision[]>([]);
+  const [decisionStorageReady, setDecisionStorageReady] = useState(false);
+  const [selectedDecision, setSelectedDecision] = useState<Decision | null>(null);
+  const [isDecisionRegistrationOpen, setIsDecisionRegistrationOpen] = useState(false);
   const [selectedRecommendation, setSelectedRecommendation] = useState<Recommendation | null>(null);
   const [selectedScenario, setSelectedScenario] = useState<string>("recommended");
   const [comparison, setComparison] = useState<AnalysisComparison | null>(null);
@@ -406,38 +515,43 @@ export default function Home() {
   const [comparisonError, setComparisonError] = useState<string | null>(null);
   const [comparisonUnavailableReason, setComparisonUnavailableReason] = useState<ComparisonUnavailableReason | null>("DEMO");
   const [query, setQuery] = useState("");
+  const previousAnalysisIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem("businessgoal-history-final");
+    const storedHistory = readHistoryStorage();
 
-      if (stored) {
-        const storedHistory = JSON.parse(stored) as HistoryItem[];
+    if (storedHistory.length) {
+      setHistory(
+        [...storedHistory, ...DEMO_HISTORY_ITEMS].slice(0, 12),
+      );
 
-        setHistory(
-          [...storedHistory, ...DEMO_HISTORY_ITEMS].slice(0, 12),
-        );
+      const latestAnalysis = storedHistory.find(
+        (item) => item.reportSnapshot,
+      );
 
-        const latestAnalysis = storedHistory.find(
-          (item) => item.reportSnapshot,
-        );
+      if (latestAnalysis?.reportSnapshot) {
+        setResult(latestAnalysis.reportSnapshot);
 
-        if (latestAnalysis?.reportSnapshot) {
-          setResult(latestAnalysis.reportSnapshot);
+        const recommendedScenario =
+          latestAnalysis.reportSnapshot.scenario_simulation
+            ?.recommended_scenario;
 
-          const recommendedScenario =
-            latestAnalysis.reportSnapshot.scenario_simulation
-              ?.recommended_scenario;
-
-          if (recommendedScenario) {
-            setSelectedScenario(recommendedScenario);
-          }
+        if (recommendedScenario) {
+          setSelectedScenario(recommendedScenario);
         }
       }
-    } catch {
-      // ignore localStorage issues
     }
   }, []);
+
+  useEffect(() => {
+    setStoredDecisions(readDecisionStorage());
+    setDecisionStorageReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!decisionStorageReady) return;
+    writeDecisionStorage(storedDecisions);
+  }, [decisionStorageReady, storedDecisions]);
 
   useEffect(() => {
     if (!toast) return;
@@ -488,6 +602,34 @@ export default function Home() {
       cancelled = true;
     };
   }, [result, history]);
+
+  const activeAnalysisId = result?.analysis_id ?? null;
+  const resultDecisions = useMemo(() => getResultDecisions(result), [result]);
+  const activeDecisions = useMemo(() => {
+    if (!activeAnalysisId) return [];
+
+    return mergePersistableDecisions([
+      ...resultDecisions,
+      ...storedDecisions.filter((decision) => decision.source_analysis_id === activeAnalysisId),
+    ]);
+  }, [activeAnalysisId, resultDecisions, storedDecisions]);
+  const decisionCenterMode = getDecisionCenterMode(result, activeDecisions);
+
+  useEffect(() => {
+    if (!resultDecisions.length) return;
+    setStoredDecisions((prev) => mergePersistableDecisions([...prev, ...resultDecisions]));
+  }, [resultDecisions]);
+
+  useEffect(() => {
+    if (previousAnalysisIdRef.current === activeAnalysisId) return;
+
+    setSelectedRecommendation(null);
+    setSelectedDecision((current) => (
+      current?.source_analysis_id === activeAnalysisId ? current : null
+    ));
+    setIsDecisionRegistrationOpen(false);
+    previousAnalysisIdRef.current = activeAnalysisId;
+  }, [activeAnalysisId]);
 
   const summary = useMemo(() => getSummary(result), [result]);
   const recommendations = result ? result.recommendations ?? [] : FALLBACK_RECOMMENDATIONS;
@@ -567,9 +709,9 @@ export default function Home() {
         mergeQuality: asNumber(response.merge_summary?.merge_quality_score, response.file_validation?.quality_score || 0),
         reportSnapshot: response,
       };
-      const nextHistory = [item, ...history.filter((h) => !h.id.startsWith("demo"))].slice(0, 10);
+      const nextHistory = [item, ...history.filter((h) => !isDemoId(h.id))].slice(0, 10);
       setHistory([...nextHistory, ...DEMO_HISTORY_ITEMS].slice(0, 12));
-      localStorage.setItem("businessgoal-history-final", JSON.stringify(nextHistory));
+      writeHistoryStorage(nextHistory);
       showToast("success", "Análisis generado y guardado en historial.");
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "No se pudo generar el análisis.");
@@ -620,7 +762,20 @@ export default function Home() {
               setSelectedRecommendation={setSelectedRecommendation}
             />
           )}
-        {activeTab === "decisions" && <DecisionsView recommendations={recommendations} setSelectedRecommendation={setSelectedRecommendation} />}
+        {activeTab === "decisions" && (
+          <DecisionsView
+            mode={decisionCenterMode}
+            decisions={activeDecisions}
+            recommendations={recommendations}
+            result={result}
+            isRegistrationOpen={isDecisionRegistrationOpen}
+            onOpenWizard={openWizard}
+            onOpenRegistration={() => setIsDecisionRegistrationOpen(true)}
+            onCloseRegistration={() => setIsDecisionRegistrationOpen(false)}
+            setSelectedDecision={setSelectedDecision}
+            setSelectedRecommendation={setSelectedRecommendation}
+          />
+        )}
         {activeTab === "scenarios" && <ScenariosView scenarios={scenarios} selectedScenario={selectedScenario} setSelectedScenario={setSelectedScenario} />}
         {activeTab === "data" && <DataView currentFiles={currentFiles} history={history} onOpenWizard={openWizard} />}
         {activeTab === "products" && <ProductCatalogTable products={filteredProducts} result={result} />}
@@ -653,6 +808,7 @@ export default function Home() {
         />
       )}
 
+      {selectedDecision && <DecisionDrawer decision={selectedDecision} onClose={() => setSelectedDecision(null)} />}
       {selectedRecommendation && <RecommendationDrawer recommendation={selectedRecommendation} onClose={() => setSelectedRecommendation(null)} />}
       {toast && <div className={cn("fixed bottom-5 right-5 z-50 max-w-sm rounded-lg border px-4 py-3 text-sm font-semibold shadow-2xl", toast.type === "error" ? "border-[rgba(244,113,127,0.45)] bg-[rgba(48,18,24,0.96)] text-[var(--risk)]" : toast.type === "success" ? "border-[rgba(42,199,178,0.38)] bg-[rgba(13,44,41,0.96)] text-[var(--value)]" : "border-[rgba(91,115,242,0.4)] bg-[rgba(20,26,58,0.96)] text-[var(--primary-soft)]")}>{toast.message}</div>}
     </>
@@ -1030,17 +1186,157 @@ function AnalysisView({
   );
 }
 
-function DecisionsView({ recommendations, setSelectedRecommendation }: { recommendations: Recommendation[]; setSelectedRecommendation: (rec: Recommendation) => void }) {
+function decisionStatusLabel(status: string) {
+  const map: Record<string, string> = {
+    PENDING: "Pendiente",
+    DECIDED: "Decidida",
+    IN_PROGRESS: "En curso",
+    MONITORING: "En seguimiento",
+    COMPLETED: "Completada",
+    DISCARDED: "Descartada",
+  };
+  return map[status] || status;
+}
+
+function decisionStatusVariant(status: string) {
+  if (status === "COMPLETED") return "value" as const;
+  if (status === "DISCARDED") return "neutral" as const;
+  if (status === "IN_PROGRESS" || status === "MONITORING") return "primary" as const;
+  return "signal" as const;
+}
+
+function decisionImpactLabel(impactCategory: string) {
+  const map: Record<string, string> = {
+    CASH_RELEASE: "Caja liberable",
+    MARGIN_OPPORTUNITY: "Margen mejorable",
+    REVENUE_AT_RISK: "Ingresos en riesgo",
+    GROSS_MARGIN_AT_RISK: "Margen expuesto",
+    COST_EXPOSURE: "Coste expuesto",
+    INVENTORY_VALUE: "Valor de inventario",
+    OTHER: "Impacto económico",
+  };
+  return map[impactCategory] || "Impacto económico";
+}
+
+function DecisionsView({
+  mode,
+  decisions,
+  recommendations,
+  result,
+  isRegistrationOpen,
+  onOpenWizard,
+  onOpenRegistration,
+  onCloseRegistration,
+  setSelectedDecision,
+  setSelectedRecommendation,
+}: {
+  mode: DecisionCenterMode;
+  decisions: Decision[];
+  recommendations: Recommendation[];
+  result: AnalyzeResponse | null;
+  isRegistrationOpen: boolean;
+  onOpenWizard: () => void;
+  onOpenRegistration: () => void;
+  onCloseRegistration: () => void;
+  setSelectedDecision: (decision: Decision) => void;
+  setSelectedRecommendation: (rec: Recommendation) => void;
+}) {
+  const isLegacy = mode === "LEGACY_ANALYSIS";
+  const isDemo = mode === "DEMO";
+
   return (
     <div className="space-y-5">
       <Card>
-        <p className="page-overline">Decision Center</p>
-        <h1 className="mt-2 text-2xl font-semibold text-[var(--text-primary)]">Decisiones</h1>
-        <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--text-secondary)]">
-          Revisa las decisiones económicas priorizadas a partir del último análisis. Explora su impacto estimado y el contexto que ha llevado a BusinessGoal a detectarlas.
-        </p>
+        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="page-overline">Decision Center</p>
+              <Badge variant={isLegacy ? "signal" : isDemo ? "neutral" : "value"}>{mode}</Badge>
+            </div>
+            <h1 className="mt-2 text-2xl font-semibold text-[var(--text-primary)]">Decisiones</h1>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--text-secondary)]">
+              Revisa las decisiones económicas priorizadas a partir del último análisis y su estado de seguimiento.
+            </p>
+          </div>
+          <Button onClick={onOpenWizard} variant="primary">
+            {result ? "Actualizar datos" : "Nuevo análisis"}
+          </Button>
+        </div>
       </Card>
-      <DecisionFeed recommendations={recommendations} setSelectedRecommendation={setSelectedRecommendation} />
+
+      {isLegacy ? (
+        <Card>
+          <EmptyState
+            title="LEGACY_ANALYSIS"
+            text="Este análisis pertenece a un formato anterior. Actualiza los datos o crea un nuevo análisis para registrar decisiones con seguimiento."
+            action={(
+              <div className="flex flex-wrap justify-center gap-2">
+                <Button onClick={onOpenWizard} variant="primary" size="sm">Nuevo análisis</Button>
+                <Button onClick={onOpenWizard} variant="secondary" size="sm">Actualizar datos</Button>
+              </div>
+            )}
+          />
+        </Card>
+      ) : null}
+
+      {!isLegacy && decisions.length ? (
+        <Card>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h2 className="section-title">Decisiones activas</h2>
+              <p className="mt-1 text-sm text-[var(--text-secondary)]">Decisiones asociadas al análisis activo y listas para seguimiento.</p>
+            </div>
+            <Button onClick={onOpenRegistration} variant="secondary" size="sm">Registrar seguimiento</Button>
+          </div>
+
+          {isRegistrationOpen ? (
+            <div className="mt-5 rounded-lg border border-[rgba(91,115,242,0.34)] bg-[rgba(91,115,242,0.1)] p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-[var(--text-primary)]">Registro de decisión abierto</p>
+                  <p className="mt-1 text-xs leading-5 text-[var(--text-secondary)]">Responsable, fecha objetivo y nota de seguimiento pendientes.</p>
+                </div>
+                <Button onClick={onCloseRegistration} variant="ghost" size="sm">Cerrar</Button>
+              </div>
+            </div>
+          ) : null}
+
+          <div className="mt-5 space-y-3">
+            {decisions.map((decision, index) => (
+              <article key={decision.id} className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4 transition hover:border-[rgba(91,115,242,0.42)]">
+                <div className="grid gap-4 sm:grid-cols-[44px_1fr_auto] sm:items-start">
+                  <span className="grid h-9 w-9 place-items-center rounded-lg border border-[var(--border)] bg-[var(--surface-1)] text-xs font-semibold text-[var(--text-muted)]">
+                    {String(index + 1).padStart(2, "0")}
+                  </span>
+                  <div>
+                    <div className="flex flex-wrap gap-2">
+                      <Badge className={priorityClass(decision.priority)}>{priorityLabel(decision.priority)}</Badge>
+                      <Badge variant={decisionStatusVariant(decision.status)}>{decisionStatusLabel(decision.status)}</Badge>
+                      <Badge variant="neutral">{formatNumber(decision.confidence, 0)}% confianza</Badge>
+                      {decision.horizon_days ? <Badge variant="neutral">{decision.horizon_days} días</Badge> : null}
+                    </div>
+                    <h3 className="mt-3 text-sm font-semibold text-[var(--text-primary)]">{decision.title}</h3>
+                    <p className="mt-1 line-clamp-2 text-xs leading-5 text-[var(--text-secondary)]">
+                      {decision.detection_summary || decision.why_it_matters || "Decisión económica detectada en el análisis activo."}
+                    </p>
+                  </div>
+                  <div className="shrink-0 sm:text-right">
+                    <p className="text-xs text-[var(--text-muted)]">{decisionImpactLabel(decision.impact_category)}</p>
+                    <p className="mt-1 text-sm font-semibold text-[var(--value)]">{formatCurrency(decision.estimated_impact)}</p>
+                    <Button onClick={() => setSelectedDecision(decision)} className="mt-3" variant="secondary" size="sm">
+                      Ver decisión
+                    </Button>
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+        </Card>
+      ) : null}
+
+      {isDemo ? (
+        <DecisionFeed recommendations={recommendations} setSelectedRecommendation={setSelectedRecommendation} />
+      ) : null}
     </div>
   );
 }
@@ -1061,7 +1357,7 @@ function ScenariosView({ scenarios, selectedScenario, setSelectedScenario }: { s
 }
 
 function DataView({ currentFiles, history, onOpenWizard }: { currentFiles: [UploadRole, File][]; history: HistoryItem[]; onOpenWizard: () => void }) {
-  const realHistory = history.filter((item) => !item.id.startsWith("demo"));
+  const realHistory = history.filter((item) => !isDemoId(item.id));
   const latest = realHistory[0];
   const hasRealData = Boolean(latest || currentFiles.length);
   const connectedFiles = currentFiles.length
@@ -1310,6 +1606,47 @@ function HistoryView({ history, setResult, setActiveTab }: { history: HistoryIte
 }
 
 function SettingsView({ businessProfile, setBusinessProfile }: { businessProfile: BusinessProfile; setBusinessProfile: (profile: BusinessProfile) => void }) { return <div className="space-y-5"><Card><h1 className="text-2xl font-semibold text-[var(--text-primary)]">Configuración</h1><p className="mt-1 text-sm text-[var(--text-secondary)]">Perfil de negocio usado por defecto en los análisis.</p></Card><Card><BusinessProfileForm businessProfile={businessProfile} setBusinessProfile={setBusinessProfile} /></Card></div>; }
+
+function DecisionDrawer({ decision, onClose }: { decision: Decision; onClose: () => void }) {
+  return (
+    <DrawerShell
+      title={decision.title}
+      onClose={onClose}
+      eyebrow={<Badge variant={decisionStatusVariant(decision.status)}>{decisionStatusLabel(decision.status)}</Badge>}
+    >
+      <p className="mt-2 text-sm font-medium text-[var(--text-muted)]">{decisionImpactLabel(decision.impact_category)}</p>
+      <p className="mt-1 text-3xl font-semibold text-[var(--value)]">{formatCurrency(decision.estimated_impact)}</p>
+      <div className="mt-4 flex flex-wrap gap-2">
+        <Badge className={priorityClass(decision.priority)}>{priorityLabel(decision.priority)}</Badge>
+        <Badge variant="neutral">{formatNumber(decision.confidence, 0)}% confianza</Badge>
+        {decision.horizon_days ? <Badge variant="neutral">{decision.horizon_days} días</Badge> : null}
+      </div>
+      <div className="mt-6 space-y-4">
+        {[
+          { title: "Detección", text: decision.detection_summary },
+          { title: "Por qué importa", text: decision.why_it_matters },
+          { title: "Nota", text: decision.user_note },
+          { title: "Escenario", text: decision.selected_scenario },
+          { title: "Fecha objetivo", text: decision.target_date },
+        ].filter((item) => item.text).map((item) => (
+          <div key={item.title} className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4">
+            <p className="text-sm font-semibold text-[var(--text-primary)]">{item.title}</p>
+            <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">{item.text}</p>
+          </div>
+        ))}
+
+        {decision.drivers.length ? (
+          <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4">
+            <p className="text-sm font-semibold text-[var(--text-primary)]">Drivers</p>
+            <ul className="mt-2 space-y-2 text-sm leading-6 text-[var(--text-secondary)]">
+              {decision.drivers.map((driver) => <li key={driver}>{driver}</li>)}
+            </ul>
+          </div>
+        ) : null}
+      </div>
+    </DrawerShell>
+  );
+}
 
 function RecommendationDrawer({ recommendation, onClose }: { recommendation: Recommendation; onClose: () => void }) {
   return (
