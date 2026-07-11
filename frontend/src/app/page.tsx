@@ -22,21 +22,27 @@ import {
 } from "@/features/home/decision-cockpit";
 import { analyzeBatchFiles, compareAnalysisSnapshots, inspectBatchFiles } from "@/lib/api";
 import {
-  DECISIONS_STORAGE_KEY,
   getDecisionCenterMode,
-  getResultDecisions,
+  hydrateDecisions,
   isDemoId,
-  mergePersistableDecisions,
-  normalizeStoredDecisions,
+  loadDecisionStates,
+  saveDecisionStates,
+  updateDecisionState,
   type DecisionCenterMode,
 } from "@/lib/decision-center";
+import {
+  DecisionCenterView,
+  DecisionDetailDrawer,
+  DEMO_DECISIONS,
+} from "@/features/decisions/decision-center";
 import { cn } from "@/lib/ui";
 import type {
   AnalysisComparison,
   AnalysisSnapshot,
   AnalyzeResponse,
   BusinessProfile,
-  Decision,
+  DecisionLocalState,
+  DecisionRecord,
   InspectBatchResponse,
   Recommendation,
   ScenarioSimulation,
@@ -144,23 +150,6 @@ function writeHistoryStorage(history: HistoryItem[]) {
   writeJsonStorage(HISTORY_STORAGE_KEY, history.filter((item) => !isDemoId(item.id)));
 }
 
-function readDecisionStorage() {
-  return readJsonStorage<Decision[]>(DECISIONS_STORAGE_KEY, [], (value) => {
-    if (!Array.isArray(value)) return null;
-    return normalizeStoredDecisions(value);
-  });
-}
-
-function writeDecisionStorage(decisions: Decision[]) {
-  const persistableDecisions = mergePersistableDecisions(decisions);
-  if (!persistableDecisions.length) {
-    removeStorageItem(DECISIONS_STORAGE_KEY);
-    return;
-  }
-
-  writeJsonStorage(DECISIONS_STORAGE_KEY, persistableDecisions);
-}
-
 const DEFAULT_BUSINESS_PROFILE: BusinessProfile = {
   company_name: "Empresa demo",
   sector: "retail",
@@ -230,7 +219,6 @@ const FALLBACK_RECOMMENDATIONS: Recommendation[] = [
     probable_cause: "Compras superiores a la demanda real o pedidos sin ajuste por rotación.",
     expected_benefit: "Liberación de caja y reducción de coste de almacenamiento.",
     timeframe: "7-14 días",
-    suggested_owner: "Responsable de compras / operaciones",
   },
   {
     type: "low_margin_high_sales",
@@ -247,7 +235,6 @@ const FALLBACK_RECOMMENDATIONS: Recommendation[] = [
     probable_cause: "Precios no actualizados frente a coste de compra o margen objetivo.",
     expected_benefit: "Mejora directa del margen sin aumentar volumen de ventas.",
     timeframe: "15-30 días",
-    suggested_owner: "Dirección comercial",
   },
   {
     type: "stockout_risk",
@@ -264,7 +251,6 @@ const FALLBACK_RECOMMENDATIONS: Recommendation[] = [
     probable_cause: "Punto de reposición no ajustado a la velocidad de ventas.",
     expected_benefit: "Evitar ventas perdidas y mantener disponibilidad.",
     timeframe: "Próximos 7 días",
-    suggested_owner: "Operaciones / compras",
   },
 ];
 
@@ -504,10 +490,9 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<Toast>(null);
   const [history, setHistory] = useState<HistoryItem[]>(DEMO_HISTORY_ITEMS);
-  const [storedDecisions, setStoredDecisions] = useState<Decision[]>([]);
+  const [decisionStates, setDecisionStates] = useState<DecisionLocalState[]>([]);
   const [decisionStorageReady, setDecisionStorageReady] = useState(false);
-  const [selectedDecision, setSelectedDecision] = useState<Decision | null>(null);
-  const [isDecisionRegistrationOpen, setIsDecisionRegistrationOpen] = useState(false);
+  const [selectedDecision, setSelectedDecision] = useState<DecisionRecord | null>(null);
   const [selectedRecommendation, setSelectedRecommendation] = useState<Recommendation | null>(null);
   const [selectedScenario, setSelectedScenario] = useState<string>("recommended");
   const [comparison, setComparison] = useState<AnalysisComparison | null>(null);
@@ -544,14 +529,14 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    setStoredDecisions(readDecisionStorage());
+    setDecisionStates(loadDecisionStates());
     setDecisionStorageReady(true);
   }, []);
 
   useEffect(() => {
     if (!decisionStorageReady) return;
-    writeDecisionStorage(storedDecisions);
-  }, [decisionStorageReady, storedDecisions]);
+    saveDecisionStates(decisionStates);
+  }, [decisionStorageReady, decisionStates]);
 
   useEffect(() => {
     if (!toast) return;
@@ -604,21 +589,15 @@ export default function Home() {
   }, [result, history]);
 
   const activeAnalysisId = result?.analysis_id ?? null;
-  const resultDecisions = useMemo(() => getResultDecisions(result), [result]);
-  const activeDecisions = useMemo(() => {
-    if (!activeAnalysisId) return [];
-
-    return mergePersistableDecisions([
-      ...resultDecisions,
-      ...storedDecisions.filter((decision) => decision.source_analysis_id === activeAnalysisId),
-    ]);
-  }, [activeAnalysisId, resultDecisions, storedDecisions]);
-  const decisionCenterMode = getDecisionCenterMode(result, activeDecisions);
-
-  useEffect(() => {
-    if (!resultDecisions.length) return;
-    setStoredDecisions((prev) => mergePersistableDecisions([...prev, ...resultDecisions]));
-  }, [resultDecisions]);
+  const decisionCenterMode = getDecisionCenterMode(result);
+  const canonicalDecisions = useMemo(() => {
+    if (decisionCenterMode === "DEMO") return DEMO_DECISIONS;
+    if (decisionCenterMode === "ACTIVE_DECISIONS") return result?.decisions ?? [];
+    return [];
+  }, [decisionCenterMode, result]);
+  const activeDecisions = useMemo(() => (
+    hydrateDecisions(canonicalDecisions, decisionCenterMode === "DEMO" ? [] : decisionStates)
+  ), [canonicalDecisions, decisionCenterMode, decisionStates]);
 
   useEffect(() => {
     if (previousAnalysisIdRef.current === activeAnalysisId) return;
@@ -627,9 +606,17 @@ export default function Home() {
     setSelectedDecision((current) => (
       current?.source_analysis_id === activeAnalysisId ? current : null
     ));
-    setIsDecisionRegistrationOpen(false);
     previousAnalysisIdRef.current = activeAnalysisId;
   }, [activeAnalysisId]);
+
+  useEffect(() => {
+    setSelectedDecision((current) => {
+      if (!current) return null;
+      return activeDecisions.find(
+        (decision) => decision.id === current.id && decision.source_analysis_id === current.source_analysis_id,
+      ) ?? null;
+    });
+  }, [activeDecisions]);
 
   const summary = useMemo(() => getSummary(result), [result]);
   const recommendations = result ? result.recommendations ?? [] : FALLBACK_RECOMMENDATIONS;
@@ -646,6 +633,20 @@ export default function Home() {
 
   function showToast(type: Toast extends infer T ? T extends { type: infer U } ? U : never : never, message: string) {
     setToast({ type: type as "success" | "error" | "info", message });
+  }
+
+  function applyDecisionUpdate(
+    decision: DecisionRecord,
+    updates: Partial<Pick<DecisionLocalState, "status" | "selected_strategy" | "economic_target" | "target_date" | "user_note">>,
+    toastMessage?: string,
+  ) {
+    if (isDemoId(decision.id)) {
+      showToast("info", "La demo no guarda cambios locales.");
+      return;
+    }
+
+    setDecisionStates((prev) => updateDecisionState(prev, decision, updates));
+    if (toastMessage) showToast("success", toastMessage);
   }
 
   function setFile(role: UploadRole, file?: File) {
@@ -741,12 +742,15 @@ export default function Home() {
           <DecisionCockpit
             result={result}
             recommendations={recommendations}
+            decisionMode={decisionCenterMode}
+            decisions={activeDecisions}
             comparison={comparison}
             comparisonLoading={comparisonLoading}
             comparisonError={comparisonError}
             comparisonUnavailableReason={comparisonUnavailableReason}
             onOpenWizard={openWizard}
             onSelectRecommendation={setSelectedRecommendation}
+            onSelectDecision={setSelectedDecision}
             onGoToDecisions={() => setActiveTab("decisions")}
             onGoToAnalysis={() => setActiveTab("analysis")}
           />
@@ -763,17 +767,12 @@ export default function Home() {
             />
           )}
         {activeTab === "decisions" && (
-          <DecisionsView
+          <DecisionCenterView
             mode={decisionCenterMode}
             decisions={activeDecisions}
-            recommendations={recommendations}
             result={result}
-            isRegistrationOpen={isDecisionRegistrationOpen}
             onOpenWizard={openWizard}
-            onOpenRegistration={() => setIsDecisionRegistrationOpen(true)}
-            onCloseRegistration={() => setIsDecisionRegistrationOpen(false)}
-            setSelectedDecision={setSelectedDecision}
-            setSelectedRecommendation={setSelectedRecommendation}
+            onSelectDecision={setSelectedDecision}
           />
         )}
         {activeTab === "scenarios" && <ScenariosView scenarios={scenarios} selectedScenario={selectedScenario} setSelectedScenario={setSelectedScenario} />}
@@ -808,7 +807,13 @@ export default function Home() {
         />
       )}
 
-      {selectedDecision && <DecisionDrawer decision={selectedDecision} onClose={() => setSelectedDecision(null)} />}
+      {selectedDecision && (
+        <DecisionDetailDrawer
+          decision={selectedDecision}
+          onClose={() => setSelectedDecision(null)}
+          onUpdate={applyDecisionUpdate}
+        />
+      )}
       {selectedRecommendation && <RecommendationDrawer recommendation={selectedRecommendation} onClose={() => setSelectedRecommendation(null)} />}
       {toast && <div className={cn("fixed bottom-5 right-5 z-50 max-w-sm rounded-lg border px-4 py-3 text-sm font-semibold shadow-2xl", toast.type === "error" ? "border-[rgba(244,113,127,0.45)] bg-[rgba(48,18,24,0.96)] text-[var(--risk)]" : toast.type === "success" ? "border-[rgba(42,199,178,0.38)] bg-[rgba(13,44,41,0.96)] text-[var(--value)]" : "border-[rgba(91,115,242,0.4)] bg-[rgba(20,26,58,0.96)] text-[var(--primary-soft)]")}>{toast.message}</div>}
     </>
@@ -824,7 +829,7 @@ function Kpi({ title, value, meta, icon, tone }: { title: string; value: string 
 function DecisionFeed({ recommendations, setSelectedRecommendation }: { recommendations: Recommendation[]; setSelectedRecommendation: (rec: Recommendation) => void }) {
   return (
     <Card>
-      <div className="flex items-center justify-between"><div><h2 className="section-title">Decision Feed</h2><p className="text-sm text-[var(--text-secondary)]">Recomendaciones priorizadas por el modelo económico</p></div><Button variant="ghost" size="sm">Ver todas</Button></div>
+      <div><h2 className="section-title">Decision Feed</h2><p className="text-sm text-[var(--text-secondary)]">Recomendaciones priorizadas por el modelo económico</p></div>
       <div className="mt-5 space-y-3">
         {recommendations.slice(0, 3).map((rec, index) => (
           <article key={`${rec.title}-${index}`} className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4 transition hover:border-[rgba(91,115,242,0.42)]">
@@ -1186,161 +1191,6 @@ function AnalysisView({
   );
 }
 
-function decisionStatusLabel(status: string) {
-  const map: Record<string, string> = {
-    PENDING: "Pendiente",
-    DECIDED: "Decidida",
-    IN_PROGRESS: "En curso",
-    MONITORING: "En seguimiento",
-    COMPLETED: "Completada",
-    DISCARDED: "Descartada",
-  };
-  return map[status] || status;
-}
-
-function decisionStatusVariant(status: string) {
-  if (status === "COMPLETED") return "value" as const;
-  if (status === "DISCARDED") return "neutral" as const;
-  if (status === "IN_PROGRESS" || status === "MONITORING") return "primary" as const;
-  return "signal" as const;
-}
-
-function decisionImpactLabel(impactCategory: string) {
-  const map: Record<string, string> = {
-    CASH_RELEASE: "Caja liberable",
-    MARGIN_OPPORTUNITY: "Margen mejorable",
-    REVENUE_AT_RISK: "Ingresos en riesgo",
-    GROSS_MARGIN_AT_RISK: "Margen expuesto",
-    COST_EXPOSURE: "Coste expuesto",
-    INVENTORY_VALUE: "Valor de inventario",
-    OTHER: "Impacto económico",
-  };
-  return map[impactCategory] || "Impacto económico";
-}
-
-function DecisionsView({
-  mode,
-  decisions,
-  recommendations,
-  result,
-  isRegistrationOpen,
-  onOpenWizard,
-  onOpenRegistration,
-  onCloseRegistration,
-  setSelectedDecision,
-  setSelectedRecommendation,
-}: {
-  mode: DecisionCenterMode;
-  decisions: Decision[];
-  recommendations: Recommendation[];
-  result: AnalyzeResponse | null;
-  isRegistrationOpen: boolean;
-  onOpenWizard: () => void;
-  onOpenRegistration: () => void;
-  onCloseRegistration: () => void;
-  setSelectedDecision: (decision: Decision) => void;
-  setSelectedRecommendation: (rec: Recommendation) => void;
-}) {
-  const isLegacy = mode === "LEGACY_ANALYSIS";
-  const isDemo = mode === "DEMO";
-
-  return (
-    <div className="space-y-5">
-      <Card>
-        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-          <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <p className="page-overline">Decision Center</p>
-              <Badge variant={isLegacy ? "signal" : isDemo ? "neutral" : "value"}>{mode}</Badge>
-            </div>
-            <h1 className="mt-2 text-2xl font-semibold text-[var(--text-primary)]">Decisiones</h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--text-secondary)]">
-              Revisa las decisiones económicas priorizadas a partir del último análisis y su estado de seguimiento.
-            </p>
-          </div>
-          <Button onClick={onOpenWizard} variant="primary">
-            {result ? "Actualizar datos" : "Nuevo análisis"}
-          </Button>
-        </div>
-      </Card>
-
-      {isLegacy ? (
-        <Card>
-          <EmptyState
-            title="LEGACY_ANALYSIS"
-            text="Este análisis pertenece a un formato anterior. Actualiza los datos o crea un nuevo análisis para registrar decisiones con seguimiento."
-            action={(
-              <div className="flex flex-wrap justify-center gap-2">
-                <Button onClick={onOpenWizard} variant="primary" size="sm">Nuevo análisis</Button>
-                <Button onClick={onOpenWizard} variant="secondary" size="sm">Actualizar datos</Button>
-              </div>
-            )}
-          />
-        </Card>
-      ) : null}
-
-      {!isLegacy && decisions.length ? (
-        <Card>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <h2 className="section-title">Decisiones activas</h2>
-              <p className="mt-1 text-sm text-[var(--text-secondary)]">Decisiones asociadas al análisis activo y listas para seguimiento.</p>
-            </div>
-            <Button onClick={onOpenRegistration} variant="secondary" size="sm">Registrar seguimiento</Button>
-          </div>
-
-          {isRegistrationOpen ? (
-            <div className="mt-5 rounded-lg border border-[rgba(91,115,242,0.34)] bg-[rgba(91,115,242,0.1)] p-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <p className="text-sm font-semibold text-[var(--text-primary)]">Registro de decisión abierto</p>
-                  <p className="mt-1 text-xs leading-5 text-[var(--text-secondary)]">Responsable, fecha objetivo y nota de seguimiento pendientes.</p>
-                </div>
-                <Button onClick={onCloseRegistration} variant="ghost" size="sm">Cerrar</Button>
-              </div>
-            </div>
-          ) : null}
-
-          <div className="mt-5 space-y-3">
-            {decisions.map((decision, index) => (
-              <article key={decision.id} className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4 transition hover:border-[rgba(91,115,242,0.42)]">
-                <div className="grid gap-4 sm:grid-cols-[44px_1fr_auto] sm:items-start">
-                  <span className="grid h-9 w-9 place-items-center rounded-lg border border-[var(--border)] bg-[var(--surface-1)] text-xs font-semibold text-[var(--text-muted)]">
-                    {String(index + 1).padStart(2, "0")}
-                  </span>
-                  <div>
-                    <div className="flex flex-wrap gap-2">
-                      <Badge className={priorityClass(decision.priority)}>{priorityLabel(decision.priority)}</Badge>
-                      <Badge variant={decisionStatusVariant(decision.status)}>{decisionStatusLabel(decision.status)}</Badge>
-                      <Badge variant="neutral">{formatNumber(decision.confidence, 0)}% confianza</Badge>
-                      {decision.horizon_days ? <Badge variant="neutral">{decision.horizon_days} días</Badge> : null}
-                    </div>
-                    <h3 className="mt-3 text-sm font-semibold text-[var(--text-primary)]">{decision.title}</h3>
-                    <p className="mt-1 line-clamp-2 text-xs leading-5 text-[var(--text-secondary)]">
-                      {decision.detection_summary || decision.why_it_matters || "Decisión económica detectada en el análisis activo."}
-                    </p>
-                  </div>
-                  <div className="shrink-0 sm:text-right">
-                    <p className="text-xs text-[var(--text-muted)]">{decisionImpactLabel(decision.impact_category)}</p>
-                    <p className="mt-1 text-sm font-semibold text-[var(--value)]">{formatCurrency(decision.estimated_impact)}</p>
-                    <Button onClick={() => setSelectedDecision(decision)} className="mt-3" variant="secondary" size="sm">
-                      Ver decisión
-                    </Button>
-                  </div>
-                </div>
-              </article>
-            ))}
-          </div>
-        </Card>
-      ) : null}
-
-      {isDemo ? (
-        <DecisionFeed recommendations={recommendations} setSelectedRecommendation={setSelectedRecommendation} />
-      ) : null}
-    </div>
-  );
-}
-
 function ScenariosView({ scenarios, selectedScenario, setSelectedScenario }: { scenarios?: ScenarioSimulation; selectedScenario: string; setSelectedScenario: (id: string) => void }) {
   return (
     <div className="space-y-5">
@@ -1607,47 +1457,6 @@ function HistoryView({ history, setResult, setActiveTab }: { history: HistoryIte
 
 function SettingsView({ businessProfile, setBusinessProfile }: { businessProfile: BusinessProfile; setBusinessProfile: (profile: BusinessProfile) => void }) { return <div className="space-y-5"><Card><h1 className="text-2xl font-semibold text-[var(--text-primary)]">Configuración</h1><p className="mt-1 text-sm text-[var(--text-secondary)]">Perfil de negocio usado por defecto en los análisis.</p></Card><Card><BusinessProfileForm businessProfile={businessProfile} setBusinessProfile={setBusinessProfile} /></Card></div>; }
 
-function DecisionDrawer({ decision, onClose }: { decision: Decision; onClose: () => void }) {
-  return (
-    <DrawerShell
-      title={decision.title}
-      onClose={onClose}
-      eyebrow={<Badge variant={decisionStatusVariant(decision.status)}>{decisionStatusLabel(decision.status)}</Badge>}
-    >
-      <p className="mt-2 text-sm font-medium text-[var(--text-muted)]">{decisionImpactLabel(decision.impact_category)}</p>
-      <p className="mt-1 text-3xl font-semibold text-[var(--value)]">{formatCurrency(decision.estimated_impact)}</p>
-      <div className="mt-4 flex flex-wrap gap-2">
-        <Badge className={priorityClass(decision.priority)}>{priorityLabel(decision.priority)}</Badge>
-        <Badge variant="neutral">{formatNumber(decision.confidence, 0)}% confianza</Badge>
-        {decision.horizon_days ? <Badge variant="neutral">{decision.horizon_days} días</Badge> : null}
-      </div>
-      <div className="mt-6 space-y-4">
-        {[
-          { title: "Detección", text: decision.detection_summary },
-          { title: "Por qué importa", text: decision.why_it_matters },
-          { title: "Nota", text: decision.user_note },
-          { title: "Escenario", text: decision.selected_scenario },
-          { title: "Fecha objetivo", text: decision.target_date },
-        ].filter((item) => item.text).map((item) => (
-          <div key={item.title} className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4">
-            <p className="text-sm font-semibold text-[var(--text-primary)]">{item.title}</p>
-            <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">{item.text}</p>
-          </div>
-        ))}
-
-        {decision.drivers.length ? (
-          <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4">
-            <p className="text-sm font-semibold text-[var(--text-primary)]">Drivers</p>
-            <ul className="mt-2 space-y-2 text-sm leading-6 text-[var(--text-secondary)]">
-              {decision.drivers.map((driver) => <li key={driver}>{driver}</li>)}
-            </ul>
-          </div>
-        ) : null}
-      </div>
-    </DrawerShell>
-  );
-}
-
 function RecommendationDrawer({ recommendation, onClose }: { recommendation: Recommendation; onClose: () => void }) {
   return (
     <DrawerShell
@@ -1665,7 +1474,6 @@ function RecommendationDrawer({ recommendation, onClose }: { recommendation: Rec
           { title: "Primer paso", text: recommendation.first_step },
           { title: "Acción recomendada", text: recommendation.recommended_action },
           { title: "Beneficio esperado", text: recommendation.expected_benefit },
-          { title: "Responsable sugerido", text: recommendation.suggested_owner },
           { title: "Horizonte", text: recommendation.timeframe },
         ].filter((item) => item.text).map((item) => (
           <div key={item.title} className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4">
