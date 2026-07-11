@@ -6,21 +6,26 @@ import type {
   AnalysisComparison,
   AnalysisMetricChange,
   AnalyzeResponse,
+  DecisionRecord,
   EconomicValueCategory,
   Recommendation,
 } from "@/lib/types";
+import type { DecisionCenterMode } from "@/lib/decision-center";
 
 export type ComparisonUnavailableReason = "DEMO" | "FIRST_ANALYSIS" | "NO_SNAPSHOT" | "NO_BASELINE";
 
 type DecisionCockpitProps = {
   result: AnalyzeResponse | null;
   recommendations: Recommendation[];
+  decisionMode: DecisionCenterMode;
+  decisions: DecisionRecord[];
   comparison: AnalysisComparison | null;
   comparisonLoading: boolean;
   comparisonError: string | null;
   comparisonUnavailableReason: ComparisonUnavailableReason | null;
   onOpenWizard: () => void;
   onSelectRecommendation: (recommendation: Recommendation) => void;
+  onSelectDecision: (decision: DecisionRecord) => void;
   onGoToDecisions: () => void;
   onGoToAnalysis: () => void;
 };
@@ -117,6 +122,25 @@ function economicMagnitudeLabel(category?: string) {
   return map[category || ""] || "Magnitud económica estimada";
 }
 
+function decisionStatusLabel(status: string) {
+  const map: Record<string, string> = {
+    PENDING: "Pendiente",
+    DECIDED: "Decidida",
+    IN_PROGRESS: "En curso",
+    MONITORING: "En seguimiento",
+    COMPLETED: "Completada",
+    DISCARDED: "Descartada",
+  };
+  return map[status] || status;
+}
+
+function decisionStatusBadgeVariant(status: string) {
+  if (status === "COMPLETED") return "value" as const;
+  if (status === "DISCARDED") return "neutral" as const;
+  if (status === "PENDING") return "signal" as const;
+  return "primary" as const;
+}
+
 function exposureTone(category: Pick<EconomicValueCategory, "economic_class"> | { economic_class: string }) {
   if (category.economic_class === "CASH_RELEASE") return "text-[var(--value)]";
   if (category.economic_class === "MARGIN_OPPORTUNITY") return "text-[var(--primary-soft)]";
@@ -174,21 +198,25 @@ function statusBadgeVariant(tone?: string) {
 export function DecisionCockpit({
   result,
   recommendations,
+  decisionMode,
+  decisions,
   comparison,
   comparisonLoading,
   comparisonError,
   comparisonUnavailableReason,
   onOpenWizard,
   onSelectRecommendation,
+  onSelectDecision,
   onGoToDecisions,
   onGoToAnalysis,
 }: DecisionCockpitProps) {
   const isDemo = !result;
+  const isLegacy = decisionMode === "LEGACY_ANALYSIS";
   const score = result ? asNumber(result.summary_kpis?.business_score_current) : 82;
   const exposureCategories = result
     ? result.economic_value_summary?.categories ?? []
     : DEMO_EXPOSURE;
-  const topRecommendations = recommendations.slice(0, 3);
+  const topDecisions = decisions.slice().sort((a, b) => a.rank - b.rank).slice(0, 3);
   const quality = result
     ? asNumber(result.merge_summary?.merge_quality_score) ?? asNumber(result.file_validation?.quality_score)
     : null;
@@ -296,28 +324,33 @@ export function DecisionCockpit({
               Ver todas las decisiones
             </Button>
           </div>
-          {topRecommendations.length ? (
+          {isLegacy ? (
+            <div className="mt-5 rounded-lg border border-[rgba(239,185,76,0.38)] bg-[rgba(239,185,76,0.1)] p-4 text-sm leading-6 text-[var(--signal)]">
+              El análisis activo pertenece a un formato anterior y no incluye decisiones canónicas. Actualiza datos para activar el seguimiento.
+            </div>
+          ) : topDecisions.length ? (
             <div className="mt-5 space-y-3">
-              {topRecommendations.map((recommendation, index) => (
-                <article key={`${recommendation.title}-${index}`} className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4">
+              {topDecisions.map((decision) => (
+                <article key={decision.id} className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4">
                   <div className="grid gap-4 sm:grid-cols-[44px_1fr_auto] sm:items-start">
                     <span className="grid h-9 w-9 place-items-center rounded-lg border border-[var(--border)] bg-[var(--surface-1)] text-xs font-semibold text-[var(--text-muted)]">
-                      {String(index + 1).padStart(2, "0")}
+                      {String(decision.rank).padStart(2, "0")}
                     </span>
                     <div>
                       <div className="flex flex-wrap gap-2">
-                        <Badge className={priorityClass(recommendation.priority)}>{priorityLabel(recommendation.priority)}</Badge>
-                        <Badge variant="primary">{recommendationCategoryLabel(recommendation.category)}</Badge>
-                        {recommendation.confidence_level ? <Badge variant="neutral">{formatNumber(recommendation.confidence_level, 0)}% confianza</Badge> : null}
-                        {recommendation.timeframe ? <Badge variant="neutral">{recommendation.timeframe}</Badge> : null}
+                        <Badge variant={decisionStatusBadgeVariant(decision.status)}>{decisionStatusLabel(decision.status)}</Badge>
+                        <Badge className={priorityClass(decision.priority)}>{priorityLabel(decision.priority)}</Badge>
+                        <Badge variant="primary">{decision.impact_label}</Badge>
+                        <Badge variant="neutral">{formatNumber(decision.confidence, 0)}% confianza</Badge>
+                        {decision.horizon_label ? <Badge variant="neutral">{decision.horizon_label}</Badge> : null}
                       </div>
-                      <h3 className="mt-3 text-sm font-semibold text-[var(--text-primary)]">{recommendation.title}</h3>
-                      <p className="mt-1 line-clamp-2 text-xs leading-5 text-[var(--text-secondary)]">{recommendation.what_happens}</p>
+                      <h3 className="mt-3 text-sm font-semibold text-[var(--text-primary)]">{decision.title}</h3>
+                      <p className="mt-1 line-clamp-2 text-xs leading-5 text-[var(--text-secondary)]">{decision.detection_summary}</p>
                     </div>
                     <div className="shrink-0 sm:text-right">
-                      <p className="text-xs text-[var(--text-muted)]">{economicMagnitudeLabel(recommendation.category)}</p>
-                      <p className="mt-1 text-sm font-semibold text-[var(--value)]">{formatCurrency(recommendation.economic_impact)}</p>
-                      <Button onClick={() => onSelectRecommendation(recommendation)} className="mt-3" variant="secondary" size="sm">
+                      <p className="text-xs text-[var(--text-muted)]">{decision.impact_label}</p>
+                      <p className="mt-1 text-sm font-semibold text-[var(--value)]">{formatCurrency(decision.estimated_impact)}</p>
+                      <Button onClick={() => onSelectDecision(decision)} className="mt-3" variant="secondary" size="sm">
                         Ver decisión
                       </Button>
                     </div>
