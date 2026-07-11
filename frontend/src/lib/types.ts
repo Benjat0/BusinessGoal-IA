@@ -353,8 +353,20 @@ export type DecisionStatus =
   | "COMPLETED"
   | "DISCARDED";
 
+export type DecisionEvidenceItem = {
+  id: string;
+  product_ref: ProductRef;
+  impact: number;
+  priority: RecommendationPriority;
+  confidence: number;
+  observation: string;
+  kpi_snapshot: KpiSnapshot;
+};
+
 export type Decision = {
   id: string;
+  decision_key: string;
+  rank: number;
   title: string;
   decision_type: string;
   category: string;
@@ -362,19 +374,64 @@ export type Decision = {
   priority: RecommendationPriority;
   estimated_impact: number;
   impact_category: EconomicClass;
+  impact_label: string;
   confidence: number;
   horizon_days: number | null;
+  horizon_label: string | null;
   created_at: string;
   source_analysis_id: string;
   recommendation_ids: string[];
   affected_product_refs: ProductRef[];
+  affected_products_count: number;
   detection_summary: string;
   why_it_matters: string;
-  drivers: string[];
+  recommended_action: string;
+  first_step: string;
+  expected_business_effect: string;
+  driver_hypotheses: string[];
+  evidence_items: DecisionEvidenceItem[];
+  selected_strategy?: string | null;
   selected_scenario?: string | null;
   economic_target?: number | null;
   target_date?: string | null;
   user_note?: string | null;
+};
+
+export type DecisionLifecycleEvent = {
+  id: string;
+  from_status: DecisionStatus | null;
+  to_status: DecisionStatus;
+  created_at: string;
+};
+
+export type DecisionLocalState = {
+  decision_id: string;
+  source_analysis_id: string;
+  status: DecisionStatus;
+  selected_strategy: string | null;
+  economic_target: number | null;
+  target_date: string | null;
+  user_note: string | null;
+  decided_at: string | null;
+  completed_at: string | null;
+  updated_at: string;
+  lifecycle: DecisionLifecycleEvent[];
+};
+
+export type DecisionRecord = Omit<
+  Decision,
+  "status" | "selected_strategy" | "economic_target" | "target_date" | "user_note"
+> & {
+  status: DecisionStatus;
+  selected_strategy: string | null;
+  economic_target: number | null;
+  target_date: string | null;
+  user_note: string | null;
+  decided_at: string | null;
+  completed_at: string | null;
+  updated_at: string | null;
+  lifecycle: DecisionLifecycleEvent[];
+  local_state?: DecisionLocalState;
 };
 
 export type DecisionMetricBaseline = {
