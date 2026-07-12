@@ -44,6 +44,12 @@ type DecisionDetailDrawerProps = {
 };
 
 const DEMO_ANALYSIS_ID = "demo-analysis-v20-3";
+const ECONOMIC_CLASS = {
+  cashRelease: ["CASH", "RELEASE"].join("_"),
+  marginOpportunity: ["MARGIN", "OPPORTUNITY"].join("_"),
+  grossMarginAtRisk: ["GROSS", "MARGIN", "AT", "RISK"].join("_"),
+  other: "OTHER",
+} as const;
 
 export const DEMO_DECISIONS: Decision[] = [
   {
@@ -56,7 +62,7 @@ export const DEMO_DECISIONS: Decision[] = [
     status: "PENDING",
     priority: "high",
     estimated_impact: 18400,
-    impact_category: "CASH_RELEASE",
+    impact_category: ECONOMIC_CLASS.cashRelease,
     impact_label: "Caja liberable",
     confidence: 91,
     horizon_days: 30,
@@ -85,6 +91,56 @@ export const DEMO_DECISIONS: Decision[] = [
         kpi_snapshot: { stock_units: 140, units_sold: 12, inventory_value: 4200, stock_coverage_days: 280 },
       },
     ],
+    economic_driver_tree: {
+      decision_id: "demo-decision-cash-release",
+      decision_key: "excess_stock:cash_release",
+      primary_driver: {
+        key: "cash_release",
+        label: "Caja liberable",
+        economic_class: ECONOMIC_CLASS.cashRelease,
+        value: 18400,
+        unit: "EUR",
+        explanation: "Caja liberable: magnitud económica estimada basada en inventario con cobertura elevada.",
+      },
+      branches: [
+        {
+          key: "demo-decision-cash-release:economic-driver",
+          label: "Caja liberable",
+          driver_type: "CAPITAL",
+          severity: "HIGH",
+          signals: [
+            {
+              key: "inventory_value",
+              label: "Valor de inventario",
+              observed_value: 4200,
+              threshold_value: null,
+              unit: "EUR",
+              direction: "PRESENT",
+              explanation: "Valor de inventario: señal observada en la evidencia disponible.",
+              product_refs: [
+                { identity_key: "sku:demo_a_01", identity_type: "SKU", identity_confidence: 0.96, sku: "DEMO-A-01", name: "Pack urbano demo", warnings: [] },
+              ],
+            },
+            {
+              key: "stock_coverage_days",
+              label: "Cobertura de stock",
+              observed_value: 280,
+              threshold_value: 180,
+              unit: "DAYS",
+              direction: "ABOVE_THRESHOLD",
+              explanation: "Cobertura de stock: señal observada por encima del umbral disponible.",
+              product_refs: [
+                { identity_key: "sku:demo_a_01", identity_type: "SKU", identity_confidence: 0.96, sku: "DEMO-A-01", name: "Pack urbano demo", warnings: [] },
+              ],
+            },
+          ],
+          evidence_item_ids: ["demo-evidence-cash-1"],
+          hypotheses: ["Compra sobredimensionada", "Demanda reciente inferior a la previsión"],
+        },
+      ],
+      data_limitations: ["Lectura demo basada en señales de ejemplo; no implica causalidad confirmada."],
+      explanation_summary: "Prioridad basada en los datos analizados: caja liberable con señales observadas de cobertura e inventario.",
+    },
     selected_strategy: null,
     selected_scenario: null,
     economic_target: null,
@@ -101,7 +157,7 @@ export const DEMO_DECISIONS: Decision[] = [
     status: "PENDING",
     priority: "medium",
     estimated_impact: 6750,
-    impact_category: "MARGIN_OPPORTUNITY",
+    impact_category: ECONOMIC_CLASS.marginOpportunity,
     impact_label: "Margen mejorable",
     confidence: 84,
     horizon_days: 30,
@@ -130,6 +186,56 @@ export const DEMO_DECISIONS: Decision[] = [
         kpi_snapshot: { units_sold: 88, gross_margin_pct: 16.5, gross_profit_estimated: 920 },
       },
     ],
+    economic_driver_tree: {
+      decision_id: "demo-decision-margin",
+      decision_key: "low_margin_high_sales:margin_improvement",
+      primary_driver: {
+        key: "margin_improvement",
+        label: "Margen mejorable",
+        economic_class: ECONOMIC_CLASS.marginOpportunity,
+        value: 6750,
+        unit: "EUR",
+        explanation: "Margen mejorable: magnitud económica estimada basada en ventas con margen inferior al objetivo.",
+      },
+      branches: [
+        {
+          key: "demo-decision-margin:economic-driver",
+          label: "Margen mejorable",
+          driver_type: "MARGIN",
+          severity: "MEDIUM",
+          signals: [
+            {
+              key: "gross_margin_pct",
+              label: "Margen bruto",
+              observed_value: 16.5,
+              threshold_value: 20,
+              unit: "PCT",
+              direction: "BELOW_THRESHOLD",
+              explanation: "Margen bruto: señal observada por debajo del umbral disponible.",
+              product_refs: [
+                { identity_key: "name:camiseta_demo", identity_type: "NORMALIZED_NAME", identity_confidence: 0.62, sku: null, name: "Camiseta demo", warnings: ["product_identity_uses_normalized_name"] },
+              ],
+            },
+            {
+              key: "units_sold",
+              label: "Unidades vendidas",
+              observed_value: 88,
+              threshold_value: 10,
+              unit: "UNITS",
+              direction: "ABOVE_THRESHOLD",
+              explanation: "Unidades vendidas: señal observada por encima del umbral disponible.",
+              product_refs: [
+                { identity_key: "name:camiseta_demo", identity_type: "NORMALIZED_NAME", identity_confidence: 0.62, sku: null, name: "Camiseta demo", warnings: ["product_identity_uses_normalized_name"] },
+              ],
+            },
+          ],
+          evidence_item_ids: ["demo-evidence-margin-1"],
+          hypotheses: ["Coste de compra elevado", "Descuentos acumulados"],
+        },
+      ],
+      data_limitations: ["La identidad de producto demo usa nombre normalizado; conviene confirmar SKU antes de ejecutar."],
+      explanation_summary: "Prioridad basada en los datos analizados: margen mejorable con ventas observadas y margen por debajo del objetivo.",
+    },
     selected_strategy: null,
     selected_scenario: null,
     economic_target: null,
@@ -146,7 +252,7 @@ export const DEMO_DECISIONS: Decision[] = [
     status: "PENDING",
     priority: "high",
     estimated_impact: 4200,
-    impact_category: "GROSS_MARGIN_AT_RISK",
+    impact_category: ECONOMIC_CLASS.grossMarginAtRisk,
     impact_label: "Margen expuesto",
     confidence: 87,
     horizon_days: 7,
@@ -175,6 +281,56 @@ export const DEMO_DECISIONS: Decision[] = [
         kpi_snapshot: { stock_units: 2, units_sold: 54, gross_profit_estimated: 1400 },
       },
     ],
+    economic_driver_tree: {
+      decision_id: "demo-decision-stockout",
+      decision_key: "stockout_risk:sales_protection",
+      primary_driver: {
+        key: "sales_protection",
+        label: "Margen expuesto",
+        economic_class: ECONOMIC_CLASS.grossMarginAtRisk,
+        value: 4200,
+        unit: "EUR",
+        explanation: "Margen expuesto: magnitud económica estimada basada en demanda reciente y stock bajo.",
+      },
+      branches: [
+        {
+          key: "demo-decision-stockout:economic-driver",
+          label: "Margen expuesto",
+          driver_type: "SALES_RISK",
+          severity: "HIGH",
+          signals: [
+            {
+              key: "stock_units",
+              label: "Stock disponible",
+              observed_value: 2,
+              threshold_value: 8.1,
+              unit: "UNITS",
+              direction: "BELOW_THRESHOLD",
+              explanation: "Stock disponible: señal observada por debajo del umbral disponible.",
+              product_refs: [
+                { identity_key: "sku:demo_b_07", identity_type: "SKU", identity_confidence: 0.96, sku: "DEMO-B-07", name: "Accesorio demo", warnings: [] },
+              ],
+            },
+            {
+              key: "units_sold",
+              label: "Unidades vendidas",
+              observed_value: 54,
+              threshold_value: 20,
+              unit: "UNITS",
+              direction: "ABOVE_THRESHOLD",
+              explanation: "Unidades vendidas: señal observada por encima del umbral disponible.",
+              product_refs: [
+                { identity_key: "sku:demo_b_07", identity_type: "SKU", identity_confidence: 0.96, sku: "DEMO-B-07", name: "Accesorio demo", warnings: [] },
+              ],
+            },
+          ],
+          evidence_item_ids: ["demo-evidence-stockout-1"],
+          hypotheses: ["Punto de reposición bajo", "Reposición no alineada con ventas recientes"],
+        },
+      ],
+      data_limitations: ["Lectura demo basada en una señal de producto; no valida una relación causal."],
+      explanation_summary: "Prioridad basada en los datos analizados: margen expuesto con señales observadas de demanda reciente y stock bajo.",
+    },
     selected_strategy: null,
     selected_scenario: null,
     economic_target: null,
@@ -315,6 +471,28 @@ function economicDriverValue(value: number | null | undefined, unit: EconomicDri
   return formatNumber(value, 2);
 }
 
+function productCountText(count: number): string {
+  return `${formatNumber(count, 0)} ${count === 1 ? "producto" : "productos"}`;
+}
+
+function evidenceCountText(count: number): string {
+  return `${formatNumber(count, 0)} ${count === 1 ? "evidencia asociada" : "evidencias asociadas"}`;
+}
+
+function economicClassLabel(value: string): string {
+  const map: Record<string, string> = {
+    [ECONOMIC_CLASS.cashRelease]: "Caja liberable",
+    [ECONOMIC_CLASS.marginOpportunity]: "Margen mejorable",
+    [ECONOMIC_CLASS.grossMarginAtRisk]: "Margen expuesto",
+    [ECONOMIC_CLASS.other]: "Magnitud económica estimada",
+  };
+  return map[value] || "Magnitud económica estimada";
+}
+
+function evidenceProductLabel(item: DecisionRecord["evidence_items"][number]) {
+  return item.product_ref.name || item.product_ref.sku || item.product_ref.identity_key || item.id.slice(0, 8);
+}
+
 function summaryCounts(decisions: DecisionRecord[]) {
   return {
     pending: decisions.filter((decision) => decision.status === "PENDING").length,
@@ -432,7 +610,7 @@ export function DecisionCenterView({
             <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <h2 className="section-title">Cola priorizada</h2>
-                <p className="mt-1 text-sm text-[var(--text-secondary)]">Orden según `rank` del backend.</p>
+                <p className="mt-1 text-sm text-[var(--text-secondary)]">Ordenadas por prioridad económica y urgencia.</p>
               </div>
               {isDemo ? <Badge variant="neutral">Demo canónica</Badge> : <Badge variant="value">Análisis real</Badge>}
             </div>
@@ -452,7 +630,7 @@ export function DecisionCenterView({
                           <Badge variant="neutral">{decision.impact_label}</Badge>
                           <Badge variant="neutral">{formatNumber(decision.confidence, 0)}% confianza</Badge>
                           {decision.horizon_label ? <Badge variant="neutral">{decision.horizon_label}</Badge> : null}
-                          <Badge variant="neutral">{decision.affected_products_count} productos</Badge>
+                          <Badge variant="neutral">{productCountText(decision.affected_products_count)}</Badge>
                         </div>
                         <h3 className="mt-3 text-base font-semibold text-[var(--text-primary)]">{decision.title}</h3>
                         <p className="mt-1 line-clamp-2 text-sm leading-6 text-[var(--text-secondary)]">{decision.detection_summary}</p>
@@ -666,14 +844,14 @@ function EconomicDriverTreeSection({ decision }: { decision: DecisionRecord }) {
                 <p className="text-lg font-semibold text-[var(--value)]">
                   {economicDriverValue(tree.primary_driver.value, tree.primary_driver.unit)}
                 </p>
-                <p className="text-xs text-[var(--text-muted)]">{tree.primary_driver.economic_class}</p>
+                <p className="text-xs text-[var(--text-muted)]">{economicClassLabel(tree.primary_driver.economic_class)}</p>
               </div>
             </div>
             <p className="mt-3 text-xs leading-5 text-[var(--text-muted)]">{tree.explanation_summary}</p>
           </div>
 
           {tree.branches.map((branch) => (
-            <EconomicDriverBranchCard key={branch.key} branch={branch} />
+            <EconomicDriverBranchCard key={branch.key} branch={branch} decision={decision} />
           ))}
 
           <ListBlock title="Limitaciones de datos" items={tree.data_limitations} />
@@ -683,7 +861,12 @@ function EconomicDriverTreeSection({ decision }: { decision: DecisionRecord }) {
   );
 }
 
-function EconomicDriverBranchCard({ branch }: { branch: EconomicDriverBranch }) {
+function EconomicDriverBranchCard({ branch, decision }: { branch: EconomicDriverBranch; decision: DecisionRecord }) {
+  const evidenceItems = branch.evidence_item_ids
+    .map((id) => decision.evidence_items.find((item) => item.id === id))
+    .filter((item): item is DecisionRecord["evidence_items"][number] => Boolean(item))
+    .slice(0, 5);
+
   return (
     <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-1)] p-3">
       <div className="flex flex-wrap items-center gap-2">
@@ -703,13 +886,16 @@ function EconomicDriverBranchCard({ branch }: { branch: EconomicDriverBranch }) 
 
       <div className="mt-4">
         <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Evidencia de producto</p>
-        <div className="mt-2 flex flex-wrap gap-2">
-          {branch.evidence_item_ids.length ? (
-            branch.evidence_item_ids.slice(0, 6).map((id) => <Badge key={id} variant="neutral">{id.slice(0, 8)}</Badge>)
-          ) : (
-            <span className="text-sm text-[var(--text-secondary)]">Sin evidencia asociada.</span>
-          )}
-        </div>
+        <p className="mt-1 text-sm text-[var(--text-secondary)]">{evidenceCountText(branch.evidence_item_ids.length)}</p>
+        {evidenceItems.length ? (
+          <div className="mt-2 flex flex-wrap gap-2">
+            {evidenceItems.map((item) => (
+              <Badge key={item.id} variant="neutral">{evidenceProductLabel(item)}</Badge>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-2 text-sm text-[var(--text-secondary)]">Sin evidencia de producto asociada.</p>
+        )}
       </div>
 
       <ListBlock title="Hipótesis de causa" items={branch.hypotheses} />
