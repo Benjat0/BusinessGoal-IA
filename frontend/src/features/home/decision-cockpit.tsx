@@ -126,7 +126,7 @@ function decisionStatusLabel(status: string) {
   const map: Record<string, string> = {
     PENDING: "Pendiente",
     DECIDED: "Decidida",
-    IN_PROGRESS: "En curso",
+    IN_PROGRESS: "En ejecución",
     MONITORING: "En seguimiento",
     COMPLETED: "Completada",
     DISCARDED: "Descartada",

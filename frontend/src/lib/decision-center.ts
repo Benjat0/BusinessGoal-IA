@@ -24,7 +24,7 @@ const DECISION_STATUSES = new Set<DecisionStatus>([
 ]);
 
 const TRANSITIONS: Record<DecisionStatus, DecisionStatus[]> = {
-  PENDING: ["DECIDED"],
+  PENDING: ["DECIDED", "DISCARDED"],
   DECIDED: ["IN_PROGRESS", "DISCARDED"],
   IN_PROGRESS: ["MONITORING", "COMPLETED", "DISCARDED"],
   MONITORING: ["COMPLETED", "IN_PROGRESS", "DISCARDED"],
@@ -245,7 +245,7 @@ export function updateDecisionState(
     target_date: updates.target_date ?? current?.target_date ?? decision.target_date ?? null,
     user_note: updates.user_note ?? current?.user_note ?? decision.user_note ?? null,
     decided_at: current?.decided_at ?? (toStatus === "DECIDED" ? now : null),
-    completed_at: toStatus === "COMPLETED" ? current?.completed_at ?? now : current?.completed_at ?? null,
+    completed_at: toStatus === "COMPLETED" ? current?.completed_at ?? now : null,
     updated_at: now,
     lifecycle,
   };

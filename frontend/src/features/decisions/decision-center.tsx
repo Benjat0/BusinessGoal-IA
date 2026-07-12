@@ -197,7 +197,7 @@ function statusLabel(status: DecisionStatus) {
   const map: Record<DecisionStatus, string> = {
     PENDING: "Pendiente",
     DECIDED: "Decidida",
-    IN_PROGRESS: "En curso",
+    IN_PROGRESS: "En ejecución",
     MONITORING: "En seguimiento",
     COMPLETED: "Completada",
     DISCARDED: "Descartada",
@@ -236,7 +236,7 @@ function transitionLabel(status: DecisionStatus) {
   const map: Record<DecisionStatus, string> = {
     PENDING: "Volver a pendiente",
     DECIDED: "Registrar decisión",
-    IN_PROGRESS: "Pasar a en curso",
+    IN_PROGRESS: "Pasar a ejecución",
     MONITORING: "Pasar a seguimiento",
     COMPLETED: "Marcar completada",
     DISCARDED: "Descartar",
@@ -453,6 +453,9 @@ export function DecisionDetailDrawer({ decision, onClose, onUpdate }: DecisionDe
   const [targetDate, setTargetDate] = useState(decision.target_date ?? "");
   const [userNote, setUserNote] = useState(decision.user_note ?? "");
   const transitions = allowedDecisionTransitions(decision.status);
+  const secondaryTransitions = decision.status === "PENDING"
+    ? transitions.filter((nextStatus) => nextStatus !== "DECIDED")
+    : transitions;
   const visibleEvidence = decision.evidence_items.slice(0, 5);
 
   function submitRegistration() {
@@ -547,9 +550,9 @@ export function DecisionDetailDrawer({ decision, onClose, onUpdate }: DecisionDe
             </div>
           )}
 
-          {transitions.length ? (
+          {secondaryTransitions.length ? (
             <div className="mt-4 flex flex-wrap gap-2">
-              {transitions.map((nextStatus) => (
+              {secondaryTransitions.map((nextStatus) => (
                 <Button
                   key={nextStatus}
                   onClick={() => onUpdate(decision, { status: nextStatus }, "Estado actualizado.")}
