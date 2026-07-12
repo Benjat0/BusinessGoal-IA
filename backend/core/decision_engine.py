@@ -6,6 +6,7 @@ from typing import Any, Dict, List
 
 import pandas as pd
 
+from .economic_driver_tree import build_economic_driver_tree
 from .product_identity import resolve_product_ref
 from .utils import normalize_text
 
@@ -136,6 +137,7 @@ def build_decisions(
     analysis_created_at: str,
     consolidated_recommendations: List[Dict[str, Any]],
     enriched: pd.DataFrame,
+    business_profile: Dict[str, Any] | None = None,
 ) -> List[Dict[str, Any]]:
     """Build canonical Decision records from consolidated recommendations.
 
@@ -158,7 +160,7 @@ def build_decisions(
             enriched=enriched,
         )
 
-        decisions.append({
+        decision = {
             "id": _stable_uuid(analysis_id, decision_key),
             "decision_key": decision_key,
             "rank": index,
@@ -190,6 +192,12 @@ def build_decisions(
             "economic_target": None,
             "target_date": None,
             "user_note": None,
-        })
+        }
+        decision["economic_driver_tree"] = build_economic_driver_tree(
+            decision=decision,
+            recommendation=recommendation,
+            business_profile=business_profile,
+        )
+        decisions.append(decision)
 
     return decisions

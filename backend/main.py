@@ -283,6 +283,7 @@ def _build_analysis_response(
         analysis_created_at=analysis_created_at,
         consolidated_recommendations=consolidated_recommendations,
         enriched=enriched,
+        business_profile=profile,
     )
     action_plan = build_action_plan(consolidated_recommendations)
     opportunity_groups = build_opportunity_groups(recommendations)
