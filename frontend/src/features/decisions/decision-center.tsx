@@ -13,6 +13,11 @@ import type {
   Decision,
   DecisionRecord,
   DecisionStatus,
+  EconomicDriverBranch,
+  EconomicDriverSeverity,
+  EconomicDriverSignal,
+  EconomicDriverType,
+  EconomicDriverUnit,
   RecommendationPriority,
 } from "@/lib/types";
 
@@ -269,6 +274,47 @@ function metricValue(key: string, value: number) {
   return formatNumber(value, 0);
 }
 
+function driverTypeLabel(type: EconomicDriverType) {
+  const map: Record<string, string> = {
+    CAPITAL: "Capital",
+    MARGIN: "Margen",
+    SALES_RISK: "Riesgo comercial",
+    DATA_QUALITY: "Calidad de datos",
+    OTHER: "Otro",
+  };
+  return map[type] || type;
+}
+
+function severityLabel(severity: EconomicDriverSeverity) {
+  const map: Record<string, string> = {
+    HIGH: "Alta",
+    MEDIUM: "Media",
+    LOW: "Baja",
+    UNKNOWN: "No determinada",
+  };
+  return map[severity] || severity;
+}
+
+function signalDirectionLabel(direction: string) {
+  const map: Record<string, string> = {
+    ABOVE_THRESHOLD: "Sobre umbral",
+    BELOW_THRESHOLD: "Bajo umbral",
+    PRESENT: "Presente",
+    MISSING: "Métrica no disponible",
+  };
+  return map[direction] || direction;
+}
+
+function economicDriverValue(value: number | null | undefined, unit: EconomicDriverUnit) {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "Sin dato";
+  if (unit === "EUR") return formatCurrency(value);
+  if (unit === "PCT") return `${formatNumber(value, 1)}%`;
+  if (unit === "DAYS") return `${formatNumber(value, 0)} días`;
+  if (unit === "RATIO") return formatNumber(value, 2);
+  if (unit === "UNITS") return formatNumber(value, 0);
+  return formatNumber(value, 2);
+}
+
 function summaryCounts(decisions: DecisionRecord[]) {
   return {
     pending: decisions.filter((decision) => decision.status === "PENDING").length,
@@ -487,6 +533,8 @@ export function DecisionDetailDrawer({ decision, onClose, onUpdate }: DecisionDe
           <p className="mt-2 text-sm text-[var(--text-secondary)]">{decision.impact_label} · {formatNumber(decision.confidence, 0)}% confianza</p>
         </section>
 
+        <EconomicDriverTreeSection decision={decision} />
+
         <TextSection title="Detección" text={decision.detection_summary} />
         <TextSection title="Por qué importa" text={decision.why_it_matters} />
         <TextSection title="Acción recomendada" text={decision.recommended_action} />
@@ -583,6 +631,136 @@ export function DecisionDetailDrawer({ decision, onClose, onUpdate }: DecisionDe
         </section>
       </div>
     </DrawerShell>
+  );
+}
+
+function EconomicDriverTreeSection({ decision }: { decision: DecisionRecord }) {
+  const tree = decision.economic_driver_tree;
+
+  return (
+    <section className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-sm font-semibold text-[var(--text-primary)]">Árbol económico</p>
+          <p className="mt-1 text-sm leading-6 text-[var(--text-secondary)]">
+            Lectura estructurada de las señales que justifican esta decisión. No implica causalidad confirmada.
+          </p>
+        </div>
+        {tree ? <Badge variant="value">{tree.primary_driver.label}</Badge> : null}
+      </div>
+
+      {!tree ? (
+        <p className="mt-4 text-sm leading-6 text-[var(--text-secondary)]">
+          No hay árbol económico asociado a esta decisión.
+        </p>
+      ) : (
+        <div className="mt-4 space-y-4">
+          <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-1)] p-3">
+            <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Driver principal</p>
+            <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-[var(--text-primary)]">{tree.primary_driver.label}</p>
+                <p className="mt-1 text-xs leading-5 text-[var(--text-secondary)]">{tree.primary_driver.explanation}</p>
+              </div>
+              <div className="shrink-0 sm:text-right">
+                <p className="text-lg font-semibold text-[var(--value)]">
+                  {economicDriverValue(tree.primary_driver.value, tree.primary_driver.unit)}
+                </p>
+                <p className="text-xs text-[var(--text-muted)]">{tree.primary_driver.economic_class}</p>
+              </div>
+            </div>
+            <p className="mt-3 text-xs leading-5 text-[var(--text-muted)]">{tree.explanation_summary}</p>
+          </div>
+
+          {tree.branches.map((branch) => (
+            <EconomicDriverBranchCard key={branch.key} branch={branch} />
+          ))}
+
+          <ListBlock title="Limitaciones de datos" items={tree.data_limitations} />
+        </div>
+      )}
+    </section>
+  );
+}
+
+function EconomicDriverBranchCard({ branch }: { branch: EconomicDriverBranch }) {
+  return (
+    <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-1)] p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge variant="neutral">{driverTypeLabel(branch.driver_type)}</Badge>
+        <Badge variant="neutral">Severidad {severityLabel(branch.severity)}</Badge>
+      </div>
+      <p className="mt-3 text-sm font-semibold text-[var(--text-primary)]">{branch.label}</p>
+
+      <div className="mt-4">
+        <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Señales observadas</p>
+        <div className="mt-2 grid gap-2">
+          {branch.signals.map((signal) => (
+            <EconomicSignalRow key={signal.key} signal={signal} />
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-4">
+        <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Evidencia de producto</p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {branch.evidence_item_ids.length ? (
+            branch.evidence_item_ids.slice(0, 6).map((id) => <Badge key={id} variant="neutral">{id.slice(0, 8)}</Badge>)
+          ) : (
+            <span className="text-sm text-[var(--text-secondary)]">Sin evidencia asociada.</span>
+          )}
+        </div>
+      </div>
+
+      <ListBlock title="Hipótesis de causa" items={branch.hypotheses} />
+    </div>
+  );
+}
+
+function EconomicSignalRow({ signal }: { signal: EconomicDriverSignal }) {
+  return (
+    <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm font-semibold text-[var(--text-primary)]">{signal.label}</p>
+            <Badge variant={signal.direction === "MISSING" ? "signal" : "neutral"}>{signalDirectionLabel(signal.direction)}</Badge>
+          </div>
+          <p className="mt-1 text-xs leading-5 text-[var(--text-secondary)]">{signal.explanation}</p>
+        </div>
+        <div className="shrink-0 sm:text-right">
+          <p className="text-sm font-semibold text-[var(--text-primary)]">
+            {economicDriverValue(signal.observed_value, signal.unit)}
+          </p>
+          {signal.threshold_value !== null ? (
+            <p className="mt-1 text-xs text-[var(--text-muted)]">
+              Umbral: {economicDriverValue(signal.threshold_value, signal.unit)}
+            </p>
+          ) : null}
+        </div>
+      </div>
+
+      {signal.product_refs.length ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {signal.product_refs.slice(0, 4).map((ref) => (
+            <Badge key={ref.identity_key} variant="neutral">{ref.name || ref.sku || ref.identity_key}</Badge>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ListBlock({ title, items }: { title: string; items: string[] }) {
+  if (!items.length) return null;
+
+  return (
+    <div className="mt-4">
+      <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">{title}</p>
+      <ul className="mt-2 space-y-1 text-sm leading-6 text-[var(--text-secondary)]">
+        {items.map((item) => <li key={item}>{item}</li>)}
+      </ul>
+    </div>
   );
 }
 

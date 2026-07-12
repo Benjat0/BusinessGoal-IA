@@ -108,6 +108,58 @@ export type KpiSnapshot = {
   stock_turnover_90d?: number | null;
 };
 
+export type EconomicDriverUnit = "EUR" | "PCT" | "UNITS" | "DAYS" | "SCORE" | "RATIO" | "UNKNOWN" | string;
+
+export type EconomicDriverType = "CAPITAL" | "MARGIN" | "SALES_RISK" | "DATA_QUALITY" | "OTHER" | string;
+
+export type EconomicDriverSeverity = "HIGH" | "MEDIUM" | "LOW" | "UNKNOWN" | string;
+
+export type EconomicDriverSignalDirection =
+  | "ABOVE_THRESHOLD"
+  | "BELOW_THRESHOLD"
+  | "PRESENT"
+  | "MISSING"
+  | string;
+
+export type EconomicDriverPrimaryDriver = {
+  key: string;
+  label: string;
+  economic_class: EconomicClass;
+  value: number;
+  unit: EconomicDriverUnit;
+  explanation: string;
+};
+
+export type EconomicDriverSignal = {
+  key: string;
+  label: string;
+  observed_value: number | null;
+  threshold_value: number | null;
+  unit: EconomicDriverUnit;
+  direction: EconomicDriverSignalDirection;
+  explanation: string;
+  product_refs: ProductRef[];
+};
+
+export type EconomicDriverBranch = {
+  key: string;
+  label: string;
+  driver_type: EconomicDriverType;
+  severity: EconomicDriverSeverity;
+  signals: EconomicDriverSignal[];
+  evidence_item_ids: string[];
+  hypotheses: string[];
+};
+
+export type EconomicDriverTree = {
+  decision_id: string;
+  decision_key: string;
+  primary_driver: EconomicDriverPrimaryDriver;
+  branches: EconomicDriverBranch[];
+  data_limitations: string[];
+  explanation_summary: string;
+};
+
 export type Recommendation = {
   type: string;
   category?: string;
@@ -390,6 +442,7 @@ export type Decision = {
   expected_business_effect: string;
   driver_hypotheses: string[];
   evidence_items: DecisionEvidenceItem[];
+  economic_driver_tree?: EconomicDriverTree;
   selected_strategy?: string | null;
   selected_scenario?: string | null;
   economic_target?: number | null;
