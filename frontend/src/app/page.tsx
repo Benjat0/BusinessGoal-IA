@@ -820,7 +820,7 @@ export default function Home() {
         {activeTab === "products" && <ProductCatalogTable products={filteredProducts} result={result} />}
         {activeTab === "inventory" && <InventorySalesView mode="inventory" result={result} products={filteredProducts} />}
         {activeTab === "sales" && <InventorySalesView mode="sales" result={result} products={filteredProducts} />}
-        {activeTab === "reports" && <ExecutiveReport result={result} recommendations={recommendations} summary={summary} historyItem={activeHistory} />}
+        {activeTab === "reports" && <ExecutiveReport result={result} recommendations={recommendations} summary={summary} historyItem={activeHistory} activeDecisions={activeDecisions} comparison={comparison} />}
         {activeTab === "history" && <HistoryView history={history} setResult={setResult} setActiveTab={setActiveTab} />}
         {activeTab === "ai" && <AIContextView result={result} recommendations={recommendations} />}
         {activeTab === "settings" && <SettingsView businessProfile={businessProfile} setBusinessProfile={setBusinessProfile} />}
@@ -1542,44 +1542,102 @@ function InventorySalesView({ mode, result, products }: { mode: "inventory" | "s
 }
 
 
-function ExecutiveReport({ result, recommendations, summary, historyItem }: { result: AnalyzeResponse | null; recommendations: Recommendation[]; summary: ReturnType<typeof getSummary>; historyItem?: HistoryItem }) {
-  const topRecommendations = recommendations.slice(0, 3);
+function economicClassReportLabel(value?: string): string {
+  const map: Record<string, string> = {
+    CASH_RELEASE: "Caja liberable",
+    MARGIN_OPPORTUNITY: "Margen mejorable",
+    GROSS_MARGIN_AT_RISK: "Margen expuesto",
+    OTHER: "Magnitud económica estimada",
+  };
+  return map[value || ""] || "Magnitud económica estimada";
+}
 
-  const riskRecommendations = recommendations
-    .filter(
-      (rec) =>
-        rec.priority === "high" ||
-        rec.category === "sales_protection" ||
-        String(rec.type || "").toLowerCase().includes("risk"),
-    )
-    .slice(0, 3);
+function safeList<T>(items?: T[] | null, limit = 5): T[] {
+  return Array.isArray(items) ? items.filter(Boolean).slice(0, limit) : [];
+}
 
-  const prioritizedRisks = riskRecommendations.length
-    ? riskRecommendations
-    : topRecommendations;
+function reportModeLabel(result: AnalyzeResponse | null): string {
+  if (!result) return "Demo";
+  return result.analysis_mode === "multi_file" ? "Análisis real multiarchivo" : "Análisis real";
+}
 
-  const trustComponents = result?.economic_value_summary?.categories?.length
-    ? result.economic_value_summary.categories.map((category) => ({
-        key: category.key,
-        label: category.label,
-        amount: category.value,
-        description: category.description,
-      }))
-    : result?.trust_layer?.components || [
-        { key: "cash", label: "Caja liberable", amount: summary.capital, description: "Capital inmovilizado en inventario con baja rotación." },
-        { key: "margin", label: "Margen mejorable", amount: 6750, description: "Potencial estimado por revisión selectiva de precio y coste." },
-        { key: "risk", label: "Margen expuesto", amount: 4200, description: "Margen bruto asociado a productos con demanda y riesgo de rotura." },
-      ];
+function reportConfidenceLabel(result: AnalyzeResponse | null): string {
+  const confidence = result?.trust_layer?.confidence_level;
+  return typeof confidence === "number" && Number.isFinite(confidence) ? `${formatNumber(confidence, 0)}%` : "No disponible";
+}
 
-  const executiveMessage = formatReportCurrencyText(
-    result?.executive_summary?.message ||
-      "BusinessGoal ha detectado oportunidades de caja, margen y disponibilidad. La prioridad es actuar primero sobre capital inmovilizado y productos con riesgo económico directo.",
-  );
+function comparisonValueFormat(value: number, format: string): string {
+  if (format === "currency") return formatCurrency(value);
+  if (format === "percent") return `${formatNumber(value, 1)}%`;
+  if (format === "score") return `${formatNumber(value, 0)}/100`;
+  return formatNumber(value, format === "integer" ? 0 : 2);
+}
 
-  const aiInsight = formatReportCurrencyText(
-    result?.executive_summary?.ai_insight ||
-      "La primera decisión recomendada es reducir exceso de stock en productos con baja rotación.",
-  );
+function reportDriverTypeLabel(value: string): string {
+  const map: Record<string, string> = {
+    CAPITAL: "Capital",
+    MARGIN: "Margen",
+    SALES_RISK: "Riesgo comercial",
+    DATA_QUALITY: "Calidad de datos",
+    OTHER: "Otro",
+  };
+  return map[value] || value;
+}
+
+function reportDirectionLabel(value: string): string {
+  const map: Record<string, string> = {
+    ABOVE_THRESHOLD: "Sobre umbral",
+    BELOW_THRESHOLD: "Bajo umbral",
+    PRESENT: "Presente",
+    MISSING: "No disponible",
+  };
+  return map[value] || value;
+}
+
+function reportDriverValue(value: number | null | undefined, unit?: string): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "Sin dato";
+  if (unit === "EUR") return formatCurrency(value);
+  if (unit === "PCT") return `${formatNumber(value, 1)}%`;
+  if (unit === "DAYS") return `${formatNumber(value, 0)} días`;
+  if (unit === "UNITS") return formatNumber(value, 0);
+  return formatNumber(value, 2);
+}
+
+function reportActionPlan(decisions: DecisionRecord[]) {
+  const first = decisions[0];
+  const second = decisions[1];
+  const third = decisions[2];
+  return {
+    today: [first?.first_step || first?.recommended_action || "Revisar la primera decisión priorizada y confirmar datos críticos."],
+    week: [second?.first_step || second?.recommended_action || "Validar stock, margen y disponibilidad de las decisiones pendientes."],
+    month: [third?.recommended_action || third?.first_step || "Revisar política de stock objetivo, precio y reposición con datos actualizados."],
+  };
+}
+
+type ExecutiveReportProps = {
+  result: AnalyzeResponse | null;
+  recommendations: Recommendation[];
+  summary: ReturnType<typeof getSummary>;
+  historyItem?: HistoryItem;
+  activeDecisions: DecisionRecord[];
+  comparison: AnalysisComparison | null;
+};
+
+function ExecutiveReport({ result, recommendations, summary, historyItem, activeDecisions, comparison }: ExecutiveReportProps) {
+  const reportDecisions = activeDecisions.length ? activeDecisions : [];
+  const topDecisions = safeList(reportDecisions, 5);
+  const fallbackRecommendations = safeList(recommendations, 5);
+  const economicCategories = safeList(result?.economic_value_summary?.categories, 4);
+  const scoreAfterActions = optionalNumber(result?.summary_kpis?.business_score_after_actions);
+  const actionPlan = reportActionPlan(reportDecisions);
+  const profile = result?.business_profile;
+  const retailFit = result?.retail_template_fit;
+  const comparable = comparison && comparison.status !== "NOT_COMPARABLE";
+  const decisionsWithScenarios = safeList(reportDecisions.filter((decision) => decision.scenario_options?.length), 3);
+  const decisionsWithTrees = safeList(reportDecisions.filter((decision) => decision.economic_driver_tree), 3);
+  const detectedRetailConcepts = retailFit
+    ? Object.entries(retailFit.detected_concepts).filter(([, values]) => values.length)
+    : [];
 
   return (
     <div className="executive-report-print mx-auto max-w-6xl">
@@ -1587,15 +1645,20 @@ function ExecutiveReport({ result, recommendations, summary, historyItem }: { re
         <section className="report-card report-keep rounded-[28px] border border-slate-800 bg-white p-8 text-slate-950 shadow-2xl shadow-black/20">
           <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <p className="text-sm font-black uppercase tracking-[0.22em] text-blue-700">BusinessGoal · Informe ejecutivo</p>
-              <h1 className="mt-4 text-4xl font-black tracking-tight text-slate-950">Diagnóstico económico del negocio</h1>
-              <p className="mt-3 max-w-3xl text-base leading-7 text-slate-600">Informe preparado para dirección con oportunidades económicas, riesgos prioritarios y plan de acción recomendado.</p>
+              <p className="text-sm font-black uppercase tracking-[0.22em] text-blue-700">BusinessGoal · Executive Report v20</p>
+              <h1 className="mt-4 text-4xl font-black tracking-tight text-slate-950">Informe ejecutivo de decisiones económicas</h1>
+              <p className="mt-3 max-w-3xl text-base leading-7 text-slate-600">
+                Lectura directiva del análisis activo: exposición económica, decisiones priorizadas, escenarios y calidad de datos.
+              </p>
             </div>
 
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
-              <p><span className="font-bold">Fecha:</span> {historyItem ? dateLabel(historyItem.createdAt) : "Demo"}</p>
-              <p className="mt-1"><span className="font-bold">Lectura:</span> 3 minutos</p>
-              <p className="mt-1"><span className="font-bold">Confianza:</span> {result?.trust_layer?.confidence_level || 86}%</p>
+              <p><span className="font-bold">Fecha:</span> {historyItem ? dateLabel(historyItem.createdAt) : result?.analysis_created_at ? dateLabel(result.analysis_created_at) : "Demo"}</p>
+              <p className="mt-1"><span className="font-bold">Modo:</span> {reportModeLabel(result)}</p>
+              <p className="mt-1"><span className="font-bold">Lectura:</span> 3-5 minutos</p>
+              <p className="mt-1"><span className="font-bold">Confianza:</span> {reportConfidenceLabel(result)}</p>
+              {profile ? <p className="mt-1"><span className="font-bold">Perfil:</span> {profile.company_name || "Negocio"} · {profile.sector_label || profile.sector}</p> : null}
+              {profile ? <p className="mt-1"><span className="font-bold">Objetivo:</span> {profile.analysis_goal_label || profile.analysis_goal} · Margen objetivo {formatNumber(profile.target_margin_pct, 0)}%</p> : null}
             </div>
           </div>
 
@@ -1603,91 +1666,236 @@ function ExecutiveReport({ result, recommendations, summary, historyItem }: { re
           <p className="no-print mt-3 text-xs leading-5 text-slate-500">En Chrome, abre “Más ajustes” y desactiva “Encabezados y pies de página” para eliminar la URL y la numeración añadidas por el navegador.</p>
         </section>
 
-        <div className="report-metrics-grid grid gap-5 md:grid-cols-4">
-          <ReportMetric label={summary.hasAggregateEconomicValue ? "Valor económico" : "Áreas económicas"} value={summary.hasAggregateEconomicValue ? formatCurrency(summary.potential) : `${summary.economicAreaCount} áreas`} tone="green" />
-          <ReportMetric label="Capital inmovilizado" value={formatCurrency(summary.capital)} tone="red" />
-          <ReportMetric label="Business Score" value={`${summary.score}/100`} tone="blue" />
-          <ReportMetric label="Acciones recomendadas" value={summary.actions} tone="amber" />
-        </div>
-
         <section className="report-card report-keep rounded-[28px] border border-slate-800 bg-white p-7 text-slate-950">
-          <h2 className="text-2xl font-black">Resumen ejecutivo</h2>
-          <p className="mt-4 max-w-5xl text-base leading-8 text-slate-700">{executiveMessage}</p>
-          <div className="mt-5 rounded-2xl border border-violet-200 bg-violet-50 p-5 text-sm leading-7 text-violet-950"><span className="font-black">BusinessGoal IA: </span>{aiInsight}</div>
+          <h2 className="text-2xl font-black">Resumen ejecutivo v20</h2>
+          <p className="mt-4 max-w-5xl text-base leading-8 text-slate-700">
+            {formatReportCurrencyText(result?.executive_summary?.headline || "Informe preparado para priorizar decisiones económicas a partir de los datos disponibles.")}
+          </p>
+          <p className="mt-3 max-w-5xl text-sm leading-7 text-slate-600">
+            {formatReportCurrencyText(result?.executive_summary?.message || "Este informe prioriza decisiones económicas. Las cifras representan estimaciones orientativas calculadas a partir de los datos analizados.")}
+          </p>
+          {result?.business_status ? (
+            <div className="mt-5 rounded-2xl border border-blue-100 bg-blue-50 p-4 text-sm leading-7 text-blue-950">
+              <span className="font-black">{result.business_status.status}: </span>{result.business_status.message}
+            </div>
+          ) : null}
         </section>
+
+        <div className="report-metrics-grid grid gap-5 md:grid-cols-4">
+          <ReportMetric label="Business Score actual" value={`${formatNumber(summary.score, 0)}/100`} tone="blue" />
+          <ReportMetric label="Score tras acciones" value={scoreAfterActions === null ? "No disponible" : `${formatNumber(scoreAfterActions, 0)}/100`} tone="green" />
+          <ReportMetric label="Decisiones canónicas" value={topDecisions.length || reportDecisions.length || 0} tone="amber" />
+          <ReportMetric label="Áreas económicas" value={result?.economic_value_summary?.category_count ?? summary.economicAreaCount ?? 0} tone="red" />
+        </div>
       </div>
 
       <div className="report-page space-y-5">
         <section className="report-card report-keep rounded-[28px] border border-slate-800 bg-white p-7 text-slate-950">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h2 className="text-2xl font-black">Cómo se calcula el valor económico</h2>
-              <p className="mt-2 text-sm text-slate-600">Desglose orientativo para diferenciar caja, margen mejorable y margen expuesto. No es una promesa de resultado.</p>
-            </div>
-            <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">{result?.trust_layer?.confidence_level || 86}% confianza</Badge>
-          </div>
+          <h2 className="text-2xl font-black">Lectura económica no aditiva</h2>
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            {result?.economic_value_summary?.display_total_recommended_for_hero === false
+              ? "Las categorías económicas no son aditivas. Caja liberable, margen mejorable y margen expuesto deben leerse por separado."
+              : "Desglose de magnitudes económicas para dirección. Evita interpretar categorías heterogéneas como un único beneficio."}
+          </p>
 
-          <div className="report-three-grid mt-6 grid gap-4 md:grid-cols-3">
-            {trustComponents.slice(0, 3).map((component) => (
-              <div key={component.key} className="report-keep rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <p className="text-sm font-bold text-slate-600">{component.label}</p>
-                <p className="mt-2 text-2xl font-black text-slate-950">{formatCurrency(component.amount)}</p>
-                <p className="mt-2 text-sm leading-6 text-slate-600">{component.description}</p>
-              </div>
-            ))}
-          </div>
+          {economicCategories.length ? (
+            <div className="report-three-grid mt-6 grid gap-4 md:grid-cols-3">
+              {economicCategories.map((category) => (
+                <div key={category.key} className="report-keep rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-xs font-black uppercase tracking-wide text-slate-500">{economicClassReportLabel(category.economic_class)}</p>
+                  <p className="mt-2 text-sm font-bold text-slate-600">{category.label}</p>
+                  <p className="mt-2 text-2xl font-black text-slate-950">{formatCurrency(category.value)}</p>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">{category.description}</p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <NoReportData text="No hay economic_value_summary disponible. Revisa el análisis activo o genera uno nuevo." />
+          )}
         </section>
 
-        <section className="report-card rounded-[28px] border border-slate-800 bg-white p-7 text-slate-950">
-          <h2 className="text-2xl font-black">Top decisiones recomendadas</h2>
-          <div className="report-decision-list mt-5 space-y-4">
-            {topRecommendations.map((rec, index) => (
-              <div key={`${rec.title}-${index}`} className="report-keep rounded-2xl border border-slate-200 p-5">
+        <section className="report-card report-keep rounded-[28px] border border-slate-800 bg-white p-7 text-slate-950">
+          <h2 className="text-2xl font-black">Decisiones priorizadas</h2>
+          <p className="mt-2 text-sm leading-6 text-slate-600">Decisiones canónicas ordenadas para dirección. Cada elemento conecta exposición económica, evidencia y primer paso.</p>
+          <div className="mt-5 space-y-4">
+            {topDecisions.length ? topDecisions.map((decision) => (
+              <div key={decision.id} className="report-keep rounded-2xl border border-slate-200 p-5">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
-                    <p className="text-xs font-black uppercase tracking-wide text-slate-500">{priorityLabel(rec.priority)} · {categoryLabel(rec.category)}</p>
-                    <h3 className="mt-2 text-lg font-black text-slate-950">{rec.title}</h3>
-                    <p className="mt-2 text-sm leading-6 text-slate-600">{rec.recommended_action}</p>
+                    <p className="text-xs font-black uppercase tracking-wide text-slate-500">#{decision.rank} · {decision.status} · {priorityLabel(decision.priority)} · {decision.impact_label}</p>
+                    <h3 className="mt-2 text-lg font-black text-slate-950">{decision.title}</h3>
+                    <p className="mt-2 text-sm leading-6 text-slate-600">{decision.detection_summary}</p>
+                    <p className="mt-2 text-sm leading-6 text-slate-700"><span className="font-bold">Acción:</span> {decision.recommended_action || "No disponible"}</p>
+                    <p className="mt-1 text-sm leading-6 text-slate-700"><span className="font-bold">Primer paso:</span> {decision.first_step || "No disponible"}</p>
                   </div>
-                  <div className="shrink-0 text-right"><p className="text-xs font-bold text-slate-500">{economicImpactLabel(rec.category)}</p><p className="mt-1 text-xl font-black text-emerald-600">{formatCurrency(rec.economic_impact)}</p></div>
+                  <div className="shrink-0 sm:text-right">
+                    <p className="text-xs font-bold text-slate-500">{decision.impact_label}</p>
+                    <p className="mt-1 text-xl font-black text-emerald-700">{formatCurrency(decision.estimated_impact)}</p>
+                    <p className="mt-1 text-xs text-slate-500">{formatNumber(decision.confidence, 0)}% confianza · {decision.affected_products_count} productos</p>
+                  </div>
                 </div>
               </div>
-            ))}
+            )) : fallbackRecommendations.length ? fallbackRecommendations.map((rec, index) => (
+              <div key={`${rec.title}-${index}`} className="report-keep rounded-2xl border border-slate-200 p-5">
+                <p className="text-xs font-black uppercase tracking-wide text-slate-500">{priorityLabel(rec.priority)} · {categoryLabel(rec.category)}</p>
+                <h3 className="mt-2 text-lg font-black text-slate-950">{rec.title}</h3>
+                <p className="mt-2 text-sm leading-6 text-slate-600">{rec.recommended_action}</p>
+                <p className="mt-2 text-sm font-black text-emerald-700">{economicImpactLabel(rec.category)}: {formatCurrency(rec.economic_impact)}</p>
+              </div>
+            )) : <NoReportData text="No hay decisiones canónicas ni recomendaciones legacy disponibles." />}
           </div>
         </section>
       </div>
 
       <div className="report-page space-y-5">
         <section className="report-card report-keep rounded-[28px] border border-slate-800 bg-white p-7 text-slate-950">
-          <h2 className="text-2xl font-black">Riesgos prioritarios</h2>
-          <p className="mt-2 text-sm leading-6 text-slate-600">Exposiciones económicas que requieren seguimiento o intervención para evitar pérdida de liquidez, margen o ventas.</p>
-
-          <div className="report-three-grid mt-5 grid gap-4 md:grid-cols-3">
-            {prioritizedRisks.map((rec, index) => (
-              <div key={`risk-${rec.title}-${index}`} className="report-keep rounded-2xl border border-red-100 bg-red-50 p-4">
-                <p className="text-xs font-black uppercase tracking-wide text-red-700">{priorityLabel(rec.priority)} · {categoryLabel(rec.category)}</p>
-                <h3 className="mt-2 text-base font-black text-slate-950">{rec.title}</h3>
-                <p className="mt-2 text-sm leading-6 text-slate-600">{rec.what_happens || rec.why_it_matters || rec.recommended_action}</p>
-                <p className="mt-3 text-sm font-black text-red-700">Exposición estimada: {formatCurrency(rec.economic_impact)}</p>
+          <h2 className="text-2xl font-black">Escenarios por decisión</h2>
+          <p className="mt-2 text-sm leading-6 text-slate-600">Los escenarios comparan alternativas operativas. No son compromisos de resultado.</p>
+          <div className="mt-5 space-y-4">
+            {decisionsWithScenarios.length ? decisionsWithScenarios.map((decision) => (
+              <div key={`scenario-${decision.id}`} className="report-keep rounded-2xl border border-slate-200 p-5">
+                <h3 className="text-lg font-black text-slate-950">{decision.title}</h3>
+                <div className="mt-4 grid gap-3 md:grid-cols-3">
+                  {safeList(decision.scenario_options, 3).map((scenario) => {
+                    const estimate = decisionScenarioEstimate(scenario);
+                    return (
+                      <div key={scenario.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <div className="flex flex-wrap gap-2">
+                          <span className="rounded-full bg-slate-900 px-2 py-1 text-xs font-bold text-white">{scenario.label}</span>
+                          {scenario.recommended ? <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-bold text-emerald-700">Recomendado</span> : null}
+                        </div>
+                        <p className="mt-3 text-xs font-black uppercase tracking-wide text-slate-500">{decisionScenarioImpactLabel(scenario)}</p>
+                        <p className="mt-1 text-xl font-black text-slate-950">{decisionScenarioValue(estimate)}</p>
+                        <p className="mt-2 text-xs text-slate-500">Riesgo {decisionScenarioRiskLabel(scenario.risk_level)} · {formatNumber(scenario.confidence, 0)}% confianza · {scenario.time_horizon_days ? `${scenario.time_horizon_days} días` : "Sin horizonte"}</p>
+                        {safeList(scenario.assumptions, 2).map((assumption) => <p key={assumption} className="mt-2 text-xs leading-5 text-slate-600">{assumption}</p>)}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-            ))}
+            )) : <NoReportData text="No hay scenario_options disponibles para las decisiones del informe." />}
           </div>
         </section>
 
         <section className="report-card report-keep rounded-[28px] border border-slate-800 bg-white p-7 text-slate-950">
-          <h2 className="text-2xl font-black">Plan de acción recomendado</h2>
+          <h2 className="text-2xl font-black">Árbol económico / señales</h2>
+          <p className="mt-2 text-sm leading-6 text-slate-600">Las hipótesis organizan señales observadas; no implican causalidad confirmada.</p>
+          <div className="mt-5 space-y-4">
+            {decisionsWithTrees.length ? decisionsWithTrees.map((decision) => {
+              const tree = decision.economic_driver_tree;
+              const branch = tree?.branches[0];
+              return tree ? (
+                <div key={`tree-${decision.id}`} className="report-keep rounded-2xl border border-slate-200 p-5">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <h3 className="text-lg font-black text-slate-950">{decision.title}</h3>
+                      <p className="mt-2 text-sm leading-6 text-slate-600">{tree.explanation_summary}</p>
+                    </div>
+                    <div className="shrink-0 sm:text-right">
+                      <p className="text-xs font-bold text-slate-500">{tree.primary_driver.label}</p>
+                      <p className="mt-1 text-xl font-black text-slate-950">{reportDriverValue(tree.primary_driver.value, tree.primary_driver.unit)}</p>
+                    </div>
+                  </div>
+                  {branch ? (
+                    <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                      <p className="text-xs font-black uppercase tracking-wide text-slate-500">{reportDriverTypeLabel(branch.driver_type)} · Severidad {branch.severity}</p>
+                      <div className="mt-3 grid gap-2 md:grid-cols-3">
+                        {safeList(branch.signals, 3).map((signal) => (
+                          <div key={signal.key} className="rounded-xl border border-slate-200 bg-white p-3">
+                            <p className="text-sm font-bold text-slate-950">{signal.label}</p>
+                            <p className="mt-1 text-xs text-slate-600">{reportDirectionLabel(signal.direction)}</p>
+                            <p className="mt-2 text-sm font-black text-slate-950">{reportDriverValue(signal.observed_value, signal.unit)}</p>
+                            {signal.threshold_value !== null ? <p className="mt-1 text-xs text-slate-500">Umbral: {reportDriverValue(signal.threshold_value, signal.unit)}</p> : null}
+                          </div>
+                        ))}
+                      </div>
+                      {branch.hypotheses.length ? <p className="mt-3 text-xs leading-5 text-slate-600">Hipótesis de causa: {safeList(branch.hypotheses, 2).join(" · ")}</p> : null}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null;
+            }) : <NoReportData text="No hay economic_driver_tree disponible para las decisiones del informe." />}
+          </div>
+        </section>
+      </div>
+
+      <div className="report-page space-y-5">
+        {retailFit ? (
+          <section className="report-card report-keep rounded-[28px] border border-slate-800 bg-white p-7 text-slate-950">
+            <h2 className="text-2xl font-black">Encaje retail/ecommerce</h2>
+            <div className="mt-5 grid gap-4 md:grid-cols-3">
+              <ReportInlineMetric label="Fit score" value={Math.round(retailFit.fit_score)} tone="blue" />
+              <ReportInlineMetric label="Confianza" value={retailConfidenceLabel(retailFit.confidence)} tone="green" />
+              <ReportInlineMetric label="Conceptos faltantes" value={retailFit.missing_concepts.length} tone="amber" />
+            </div>
+            <p className="mt-5 text-sm leading-6 text-slate-600">{retailFit.data_readiness_summary}</p>
+            <div className="mt-5 grid gap-4 md:grid-cols-3">
+              <ReportList title="Conceptos detectados" items={detectedRetailConcepts.map(([key, values]) => `${RETAIL_CONCEPT_LABELS[key as RetailConceptKey]}: ${values.slice(0, 4).join(", ")}`)} />
+              <ReportList title="Conceptos faltantes" items={retailFit.missing_concepts} />
+              <ReportList title="Archivos recomendados" items={retailFit.recommended_files} />
+            </div>
+          </section>
+        ) : null}
+
+        <section className="report-card report-keep rounded-[28px] border border-slate-800 bg-white p-7 text-slate-950">
+          <h2 className="text-2xl font-black">What Changed</h2>
+          {comparable ? (
+            <>
+              <p className="mt-2 text-sm leading-6 text-slate-600">{comparison.explanation}</p>
+              <div className="mt-4 grid gap-4 md:grid-cols-3">
+                <ReportInlineMetric label="Estado" value={comparison.status} tone="blue" />
+                <ReportInlineMetric label="Score comparabilidad" value={`${formatNumber(comparison.score, 0)}/100`} tone="green" />
+                <ReportInlineMetric label="Cambios" value={comparison.changes.length} tone="amber" />
+              </div>
+              <div className="mt-5 grid gap-3 md:grid-cols-2">
+                {safeList(comparison.changes, 4).map((change) => (
+                  <div key={change.key} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <p className="text-sm font-black text-slate-950">{change.label}</p>
+                    <p className="mt-2 text-xs text-slate-600">Baseline: {comparisonValueFormat(change.baseline_value, change.format)} · Actual: {comparisonValueFormat(change.candidate_value, change.format)}</p>
+                    <p className="mt-2 text-sm font-black text-slate-950">Delta: {comparisonValueFormat(change.delta, change.format)} · {change.signal}</p>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <NoReportData text="Comparativa no disponible para este informe. Se necesita un análisis anterior comparable." />
+          )}
+        </section>
+
+        <section className="report-card report-keep rounded-[28px] border border-slate-800 bg-white p-7 text-slate-950">
+          <h2 className="text-2xl font-black">Plan de acción</h2>
           <div className="report-three-grid mt-5 grid gap-4 md:grid-cols-3">
-            <ActionPeriod title="Hoy" items={["Revisar top productos inmovilizados", "Confirmar compras pendientes", "Validar precios críticos"]} light />
-            <ActionPeriod title="Esta semana" items={["Lanzar liquidación parcial", "Ajustar precios selectivos", "Reponer productos de alta demanda"]} light />
-            <ActionPeriod title="Este mes" items={["Redefinir stock objetivo", "Negociar costes", "Revisar política de margen"]} light />
+            <ActionPeriod title="Hoy" items={actionPlan.today} light />
+            <ActionPeriod title="Esta semana" items={actionPlan.week} light />
+            <ActionPeriod title="Este mes" items={actionPlan.month} light />
           </div>
         </section>
 
         <section className="report-card report-keep rounded-[24px] border border-slate-200 bg-slate-50 p-5 text-slate-700">
           <p className="text-sm font-black text-slate-950">Nota metodológica</p>
-          <p className="mt-2 text-xs leading-5">Las cifras mostradas son estimaciones orientativas calculadas a partir de los datos analizados. Caja liberable, margen mejorable y margen expuesto representan categorías económicas distintas, no son aditivas y no constituyen una promesa de resultado.</p>
+          <p className="mt-2 text-xs leading-5">Las cifras son estimaciones orientativas basadas en los datos analizados. Caja liberable, margen mejorable y margen expuesto son categorías distintas y no necesariamente aditivas. Las hipótesis de causa y los escenarios ayudan a comparar alternativas, pero no prueban causalidad ni garantizan resultados.</p>
         </section>
       </div>
+    </div>
+  );
+}
+
+function NoReportData({ text }: { text: string }) {
+  return <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-600">{text}</div>;
+}
+
+function ReportList({ title, items }: { title: string; items: string[] }) {
+  const safeItems = safeList(items, 6);
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+      <p className="text-sm font-black text-slate-950">{title}</p>
+      {safeItems.length ? (
+        <ul className="mt-3 space-y-2 text-sm leading-6 text-slate-600">
+          {safeItems.map((item) => <li key={item}>{item}</li>)}
+        </ul>
+      ) : (
+        <p className="mt-3 text-sm text-slate-500">No disponible</p>
+      )}
     </div>
   );
 }
@@ -1695,6 +1903,11 @@ function ExecutiveReport({ result, recommendations, summary, historyItem }: { re
 function ReportMetric({ label, value, tone }: { label: string; value: string | number; tone: "green" | "red" | "blue" | "amber" }) {
   const tones = { green: "text-emerald-700", red: "text-red-700", blue: "text-blue-700", amber: "text-amber-700" };
   return <section className="report-card rounded-[24px] border border-slate-800 bg-white p-5 text-slate-950"><p className="text-sm font-bold text-slate-500">{label}</p><p className={cn("mt-3 text-2xl font-black", tones[tone])}>{value}</p></section>;
+}
+
+function ReportInlineMetric({ label, value, tone }: { label: string; value: string | number; tone: "green" | "red" | "blue" | "amber" }) {
+  const tones = { green: "text-emerald-700", red: "text-red-700", blue: "text-blue-700", amber: "text-amber-700" };
+  return <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-slate-950"><p className="text-sm font-bold text-slate-500">{label}</p><p className={cn("mt-3 text-2xl font-black", tones[tone])}>{value}</p></div>;
 }
 
 function ActionPeriod({ title, items, light = false }: { title: string; items: string[]; light?: boolean }) { return <div className={cn("rounded-2xl border p-4", light ? "border-slate-200 bg-slate-50" : "border-slate-800 bg-black/20")}><p className={cn("font-black", light ? "text-slate-950" : "text-white")}>{title}</p><ul className={cn("mt-3 space-y-2 text-sm", light ? "text-slate-700" : "text-slate-400")}>{items.map((item) => <li key={item}>• {item}</li>)}</ul></div>; }
