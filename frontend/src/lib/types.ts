@@ -415,6 +415,40 @@ export type DecisionEvidenceItem = {
   kpi_snapshot: KpiSnapshot;
 };
 
+export type DecisionScenarioKey = "conservative" | "recommended" | "intensive";
+
+export type DecisionScenarioType =
+  | "STOCK_REDUCTION"
+  | "MARGIN_REVIEW"
+  | "STOCKOUT_PROTECTION"
+  | "GENERIC";
+
+export type DecisionScenarioRiskLevel = "LOW" | "MEDIUM" | "HIGH";
+
+export type DecisionScenarioEffects = {
+  cash_release_estimate: number | null;
+  margin_improvement_estimate: number | null;
+  gross_margin_protected_estimate: number | null;
+  net_economic_estimate: number | null;
+};
+
+export type DecisionScenarioOption = {
+  id: string;
+  decision_id: string;
+  scenario_key: DecisionScenarioKey;
+  label: string;
+  description: string;
+  scenario_type: DecisionScenarioType;
+  parameters: Record<string, string | number | boolean | null>;
+  estimated_effects: DecisionScenarioEffects;
+  risk_level: DecisionScenarioRiskLevel;
+  confidence: number;
+  time_horizon_days: number | null;
+  assumptions: string[];
+  warnings: string[];
+  recommended: boolean;
+};
+
 export type Decision = {
   id: string;
   decision_key: string;
@@ -443,6 +477,7 @@ export type Decision = {
   driver_hypotheses: string[];
   evidence_items: DecisionEvidenceItem[];
   economic_driver_tree?: EconomicDriverTree;
+  scenario_options?: DecisionScenarioOption[];
   selected_strategy?: string | null;
   selected_scenario?: string | null;
   economic_target?: number | null;
@@ -462,6 +497,7 @@ export type DecisionLocalState = {
   source_analysis_id: string;
   status: DecisionStatus;
   selected_strategy: string | null;
+  selected_scenario: string | null;
   economic_target: number | null;
   target_date: string | null;
   user_note: string | null;
@@ -473,10 +509,11 @@ export type DecisionLocalState = {
 
 export type DecisionRecord = Omit<
   Decision,
-  "status" | "selected_strategy" | "economic_target" | "target_date" | "user_note"
+  "status" | "selected_strategy" | "selected_scenario" | "economic_target" | "target_date" | "user_note"
 > & {
   status: DecisionStatus;
   selected_strategy: string | null;
+  selected_scenario: string | null;
   economic_target: number | null;
   target_date: string | null;
   user_note: string | null;

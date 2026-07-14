@@ -134,6 +134,7 @@ function normalizeDecisionState(value: unknown): DecisionLocalState | null {
     source_analysis_id: sourceAnalysisId,
     status: value.status,
     selected_strategy: stringOrNull(value.selected_strategy),
+    selected_scenario: stringOrNull(value.selected_scenario),
     economic_target: finiteNumberOrNull(value.economic_target),
     target_date: stringOrNull(value.target_date),
     user_note: stringOrNull(value.user_note),
@@ -196,6 +197,7 @@ export function hydrateDecisions(decisions: Decision[], states: DecisionLocalSta
       ...decision,
       status: localState?.status ?? decision.status,
       selected_strategy: localState?.selected_strategy ?? decision.selected_strategy ?? null,
+      selected_scenario: localState?.selected_scenario ?? decision.selected_scenario ?? null,
       economic_target: localState?.economic_target ?? decision.economic_target ?? null,
       target_date: localState?.target_date ?? decision.target_date ?? null,
       user_note: localState?.user_note ?? decision.user_note ?? null,
@@ -211,7 +213,7 @@ export function hydrateDecisions(decisions: Decision[], states: DecisionLocalSta
 export function updateDecisionState(
   states: DecisionLocalState[],
   decision: DecisionRecord,
-  updates: Partial<Pick<DecisionLocalState, "status" | "selected_strategy" | "economic_target" | "target_date" | "user_note">>,
+  updates: Partial<Pick<DecisionLocalState, "status" | "selected_strategy" | "selected_scenario" | "economic_target" | "target_date" | "user_note">>,
   now = new Date().toISOString(),
 ): DecisionLocalState[] {
   if (isDemoId(decision.id)) return states;
@@ -241,6 +243,7 @@ export function updateDecisionState(
     source_analysis_id: decision.source_analysis_id,
     status: toStatus,
     selected_strategy: updates.selected_strategy ?? current?.selected_strategy ?? decision.selected_strategy ?? null,
+    selected_scenario: updates.selected_scenario ?? current?.selected_scenario ?? decision.selected_scenario ?? null,
     economic_target: updates.economic_target ?? current?.economic_target ?? decision.economic_target ?? null,
     target_date: updates.target_date ?? current?.target_date ?? decision.target_date ?? null,
     user_note: updates.user_note ?? current?.user_note ?? decision.user_note ?? null,
