@@ -1,0 +1,4 @@
+sku,product_name,category,supplier,stock_units,units_sold_90d,unit_cost,sale_price,revenue_90d
+SKU-001,Camiseta básica,Textil,Proveedor Norte,120,84,6.50,18.90,1587.60
+SKU-002,Zapatilla urbana,Calzado,Proveedor Centro,35,52,24.00,59.90,3114.80
+SKU-003,Mochila viaje,Accesorios,Proveedor Sur,78,12,18.50,44.90,538.80

@@ -226,8 +226,8 @@ export function DecisionCockpit({
   const businessStatus = result?.business_status;
   const statusText = isDemo ? "Lectura de ejemplo" : businessStatus?.status || "Análisis activo";
   const statusMessage = businessStatus?.message || (isDemo
-    ? "Vista demo con datos de ejemplo para explorar la lectura ejecutiva."
-    : "El análisis activo concentra las prioridades económicas detectadas.");
+    ? "Vista demo con ejemplos de stock, ventas y margen para explorar la lectura ejecutiva."
+    : "El análisis activo concentra prioridades económicas de inventario, demanda y margen.");
   const statusTone = isDemo ? "info" : businessStatus?.tone;
 
   return (
@@ -277,7 +277,7 @@ export function DecisionCockpit({
           <p className="mt-4 text-sm leading-6 text-[var(--text-secondary)]">
             {result
               ? result.executive_summary?.ai_insight || "El análisis activo no incluye un insight ejecutivo adicional."
-              : "Datos de ejemplo: la prioridad ejecutiva se concentra en separar liquidez, margen y exposición antes de decidir."}
+              : "Datos de ejemplo: la prioridad ejecutiva se concentra en separar caja bloqueada, margen mejorable y disponibilidad antes de decidir."}
           </p>
           <Button onClick={onGoToAnalysis} className="mt-5" variant="secondary" size="sm">
             Ver análisis

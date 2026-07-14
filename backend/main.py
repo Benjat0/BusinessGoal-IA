@@ -20,6 +20,7 @@ from core.field_mapper import CANONICAL_FIELDS, detect_columns, normalize_datafr
 from core.file_validator import FIELD_DESCRIPTIONS, FIELD_LABELS, FIELD_OPTIONS, build_reverse_mapping, infer_file_type, validate_file
 from core.kpi_engine import calculate_metric_coverage, calculate_summary_kpis, enrich_product_metrics, product_records
 from core.multi_file_engine import merge_prepared_files, prepare_business_file
+from core.retail_template import detect_retail_template_fit
 from core.scenario_engine import build_scenario_simulation
 from core.recommendation_engine import (
     build_action_plan,
@@ -354,6 +355,11 @@ def _build_analysis_response(
         merge_summary=merge_summary,
         metric_coverage=metric_coverage,
     )
+    retail_template_fit = detect_retail_template_fit(
+        detected_columns=detected_columns,
+        column_mapping=column_mapping,
+        normalized_df=normalized_df,
+    )
 
     response = {
         "analysis_id": analysis_id,
@@ -374,6 +380,7 @@ def _build_analysis_response(
         "executive_summary": executive_summary,
         "impact_breakdown": impact_breakdown,
         "economic_value_summary": economic_value_summary,
+        "retail_template_fit": retail_template_fit,
         "analysis_snapshot": analysis_snapshot,
         "trust_layer": build_trust_layer(summary, recommendations, consolidated_recommendations),
         "scenario_simulation": scenario_simulation,

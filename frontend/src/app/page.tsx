@@ -45,6 +45,7 @@ import type {
   DecisionRecord,
   InspectBatchResponse,
   Recommendation,
+  RetailTemplateFit,
   ScenarioSimulation,
   UploadRole,
 } from "@/lib/types";
@@ -175,6 +176,33 @@ const ANALYSIS_GOAL_OPTIONS = [
   { value: "margin", label: "Mejorar margen" },
   { value: "growth", label: "Evitar ventas perdidas" },
 ];
+
+type RetailConceptKey = keyof RetailTemplateFit["detected_concepts"];
+
+const RETAIL_TEMPLATE_BLOCKS = [
+  {
+    title: "Inventario actual",
+    items: ["SKU/producto", "stock actual", "coste o valor inventario", "categoría/proveedor"],
+  },
+  {
+    title: "Ventas recientes",
+    items: ["SKU/producto", "unidades vendidas", "ingresos", "fecha o periodo"],
+  },
+  {
+    title: "Catálogo económico",
+    items: ["SKU/producto", "precio venta", "coste unitario", "margen si existe"],
+  },
+];
+
+const RETAIL_CONCEPT_LABELS: Record<RetailConceptKey, string> = {
+  product_identity: "Identidad de producto",
+  stock: "Stock",
+  sales: "Ventas",
+  cost_price: "Coste/precio",
+  margin: "Margen",
+  category_supplier: "Categoría/proveedor",
+  dates: "Fechas",
+};
 
 const DEMO_HISTORY_ITEMS: HistoryItem[] = [
   {
@@ -776,7 +804,7 @@ export default function Home() {
           />
         )}
         {activeTab === "scenarios" && <ScenariosView scenarios={scenarios} selectedScenario={selectedScenario} setSelectedScenario={setSelectedScenario} />}
-        {activeTab === "data" && <DataView currentFiles={currentFiles} history={history} onOpenWizard={openWizard} />}
+        {activeTab === "data" && <DataView currentFiles={currentFiles} history={history} result={result} onOpenWizard={openWizard} />}
         {activeTab === "products" && <ProductCatalogTable products={filteredProducts} result={result} />}
         {activeTab === "inventory" && <InventorySalesView mode="inventory" result={result} products={filteredProducts} />}
         {activeTab === "sales" && <InventorySalesView mode="sales" result={result} products={filteredProducts} />}
@@ -1058,7 +1086,7 @@ function GuidedWizard(props: {
         <div className="flex gap-2 border-b border-[var(--border)] px-5 py-4">{stepLabels.map((label, index) => <button key={label} onClick={() => props.setWizardStep((index + 1) as WizardStep)} className={cn("flex-1 rounded-lg px-3 py-2 text-xs font-semibold", props.wizardStep === index + 1 ? "bg-[var(--selected)] text-[var(--text-primary)]" : index + 1 < props.wizardStep ? "bg-[rgba(42,199,178,0.12)] text-[var(--value)]" : "bg-[var(--surface-2)] text-[var(--text-muted)]")}>{index + 1}. {label}</button>)}</div>
         <div className="max-h-[68vh] overflow-y-auto p-5">
           {props.error ? <div className="mb-4 rounded-lg border border-[rgba(244,113,127,0.42)] bg-[rgba(244,113,127,0.12)] p-4 text-sm font-semibold text-[var(--risk)]">{props.error}</div> : null}
-          {props.wizardStep === 1 && <div className="grid gap-4 md:grid-cols-2"><ChoiceCard selected={props.uploadMode === "combined"} title="Tengo todo en un archivo" text="Productos, stock, costes, precios y ventas en un único Excel o CSV." onClick={() => props.setUploadMode("combined")} /><ChoiceCard selected={props.uploadMode === "split"} title="Tengo inventario y ventas separados" text="Cruza stock actual con ventas recientes para un análisis más realista." onClick={() => props.setUploadMode("split")} /></div>}
+          {props.wizardStep === 1 && <div className="space-y-4"><RetailTemplateGuide /><div className="grid gap-4 md:grid-cols-2"><ChoiceCard selected={props.uploadMode === "combined"} title="Tengo todo en un archivo" text="Productos, stock, costes, precios y ventas en un único Excel o CSV." onClick={() => props.setUploadMode("combined")} /><ChoiceCard selected={props.uploadMode === "split"} title="Tengo inventario y ventas separados" text="Cruza stock actual con ventas recientes para un análisis más realista." onClick={() => props.setUploadMode("split")} /></div></div>}
           {props.wizardStep === 2 && <div className="grid gap-4 md:grid-cols-2">{roles.map((role) => <UploadBox key={role} role={role} file={props.files[role]} setFile={props.setFile} />)}</div>}
           {props.wizardStep === 3 && <ValidationStep inspection={props.inspection} />}
           {props.wizardStep === 4 && <BusinessProfileForm businessProfile={props.businessProfile} setBusinessProfile={props.setBusinessProfile} />}
@@ -1072,6 +1100,43 @@ function GuidedWizard(props: {
 
 function ChoiceCard({ selected, title, text, onClick }: { selected: boolean; title: string; text: string; onClick: () => void }) {
   return <button onClick={onClick} className={cn("rounded-lg border p-6 text-left transition", selected ? "border-[rgba(91,115,242,0.48)] bg-[var(--selected)]" : "border-[var(--border)] bg-[var(--surface-2)] hover:border-[var(--border-strong)]")}><p className="text-lg font-semibold text-[var(--text-primary)]">{title}</p><p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">{text}</p></button>;
+}
+
+function RetailTemplateGuide() {
+  return (
+    <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h3 className="text-lg font-semibold text-[var(--text-primary)]">Plantilla recomendada para retail/ecommerce</h3>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--text-secondary)]">
+            Sube ventas, stock y costes/precios para que BusinessGoal detecte caja bloqueada, margen mejorable y riesgo de rotura de stock.
+          </p>
+        </div>
+        <a
+          href="/templates/businessgoal-retail-template.csv"
+          download
+          className="inline-flex shrink-0 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface-1)] px-3 py-2 text-sm font-semibold text-[var(--text-primary)] transition hover:border-[var(--border-strong)]"
+        >
+          Descargar plantilla CSV de ejemplo
+        </a>
+      </div>
+      <div className="mt-5 grid gap-3 md:grid-cols-3">
+        {RETAIL_TEMPLATE_BLOCKS.map((block) => (
+          <div key={block.title} className="rounded-lg border border-[var(--border)] bg-[var(--surface-1)] p-4">
+            <p className="text-sm font-semibold text-[var(--text-primary)]">{block.title}</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {block.items.map((item) => (
+                <Badge key={item} variant="neutral">{item}</Badge>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      <p className="mt-4 text-sm leading-6 text-[var(--text-muted)]">
+        También puedes empezar con un solo Excel combinado si contiene producto, stock, ventas y precios/costes.
+      </p>
+    </div>
+  );
 }
 
 function UploadBox({ role, file, setFile }: { role: UploadRole; file?: File; setFile: (role: UploadRole, file?: File) => void }) {
@@ -1206,10 +1271,97 @@ function ScenariosView({ scenarios, selectedScenario, setSelectedScenario }: { s
   );
 }
 
-function DataView({ currentFiles, history, onOpenWizard }: { currentFiles: [UploadRole, File][]; history: HistoryItem[]; onOpenWizard: () => void }) {
+function retailConfidenceLabel(confidence: RetailTemplateFit["confidence"]) {
+  if (confidence === "HIGH") return "Alta";
+  if (confidence === "MEDIUM") return "Media";
+  return "Baja";
+}
+
+function retailConfidenceVariant(confidence: RetailTemplateFit["confidence"]): "value" | "primary" | "neutral" {
+  if (confidence === "HIGH") return "value";
+  if (confidence === "MEDIUM") return "primary";
+  return "neutral";
+}
+
+function RetailTemplateFitCard({ fit }: { fit: RetailTemplateFit }) {
+  const detectedEntries = (Object.entries(fit.detected_concepts) as [RetailConceptKey, string[]][])
+    .filter(([, values]) => values.length);
+  const missing = fit.missing_concepts || [];
+  const recommended = fit.recommended_files || [];
+
+  return (
+    <Card>
+      <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h2 className="section-title">Encaje con plantilla retail/ecommerce</h2>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--text-secondary)]">
+            {fit.data_readiness_summary}
+          </p>
+        </div>
+        <Badge variant={retailConfidenceVariant(fit.confidence)}>Confianza {retailConfidenceLabel(fit.confidence)}</Badge>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-3">
+        <Kpi title="Score retail" value={Math.round(fit.fit_score)} meta="encaje de columnas" icon="" tone={fit.confidence === "LOW" ? "amber" : "green"} />
+        <Kpi title="Conceptos detectados" value={detectedEntries.length} meta="señales de plantilla" icon="" tone="blue" />
+        <Kpi title="Datos por completar" value={missing.length} meta={missing.length ? "conceptos pendientes" : "sin faltantes principales"} icon="" tone="amber" />
+      </div>
+
+      <div className="mt-5 grid gap-4 lg:grid-cols-2">
+        <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4">
+          <p className="text-sm font-semibold text-[var(--text-primary)]">Conceptos detectados</p>
+          <div className="mt-3 space-y-3">
+            {detectedEntries.length ? detectedEntries.map(([concept, values]) => (
+              <div key={concept}>
+                <p className="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">{RETAIL_CONCEPT_LABELS[concept]}</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {values.slice(0, 6).map((value) => <Badge key={`${concept}-${value}`} variant="neutral">{value}</Badge>)}
+                </div>
+              </div>
+            )) : <p className="text-sm text-[var(--text-secondary)]">Sin conceptos suficientes en el análisis activo.</p>}
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4">
+          <p className="text-sm font-semibold text-[var(--text-primary)]">Datos recomendados</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {missing.length ? missing.map((item) => <Badge key={item} variant="neutral">{item}</Badge>) : <Badge variant="value">Cobertura suficiente para empezar</Badge>}
+          </div>
+          {recommended.length ? (
+            <div className="mt-4 space-y-2">
+              {recommended.map((file) => <p key={file} className="text-sm text-[var(--text-secondary)]">{file}</p>)}
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      {fit.business_questions_supported?.length ? (
+        <div className="mt-5 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4">
+          <p className="text-sm font-semibold text-[var(--text-primary)]">Preguntas que puede orientar</p>
+          <div className="mt-3 grid gap-2 md:grid-cols-2">
+            {fit.business_questions_supported.map((question) => (
+              <p key={question} className="text-sm leading-6 text-[var(--text-secondary)]">{question}</p>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {fit.warnings?.length ? (
+        <div className="mt-5 rounded-lg border border-[rgba(245,158,11,0.28)] bg-[rgba(245,158,11,0.10)] p-4">
+          {fit.warnings.map((warning) => (
+            <p key={warning} className="text-sm leading-6 text-[var(--text-secondary)]">{warning}</p>
+          ))}
+        </div>
+      ) : null}
+    </Card>
+  );
+}
+
+function DataView({ currentFiles, history, result, onOpenWizard }: { currentFiles: [UploadRole, File][]; history: HistoryItem[]; result: AnalyzeResponse | null; onOpenWizard: () => void }) {
   const realHistory = history.filter((item) => !isDemoId(item.id));
   const latest = realHistory[0];
   const hasRealData = Boolean(latest || currentFiles.length);
+  const retailFit = result?.retail_template_fit;
   const connectedFiles = currentFiles.length
     ? currentFiles.map(([role, file]) => ({ role, name: file.name, date: "Sesión actual", quality: latest?.mergeQuality || 0 }))
     : latest?.fileNames.map((name, index) => ({ role: index === 0 ? "inventory" : "sales", name, date: dateLabel(latest.createdAt), quality: latest.mergeQuality || 0 })) || [];
@@ -1217,6 +1369,7 @@ function DataView({ currentFiles, history, onOpenWizard }: { currentFiles: [Uplo
   return (
     <div className="space-y-5">
       <Card><div className="flex items-center justify-between gap-4"><div><h1 className="text-2xl font-semibold text-[var(--text-primary)]">Datos</h1><p className="mt-1 text-sm text-[var(--text-secondary)]">Carga, validación y estado de procesamiento de las fuentes usadas por BusinessGoal.</p></div><Button onClick={onOpenWizard} variant="primary">Actualizar datos</Button></div></Card>
+      {retailFit ? <RetailTemplateFitCard fit={retailFit} /> : null}
       <Card>
         <div className="mb-5 flex items-center justify-between"><div><h2 className="section-title">Estado de datos conectados</h2><p className="text-sm text-[var(--text-secondary)]">Último análisis real, calidad de unión y fuentes procesadas.</p></div><Badge variant={hasRealData ? "value" : "neutral"}>{hasRealData ? "Operativo" : "Demo"}</Badge></div>
         <div className="grid gap-4 md:grid-cols-3"><Kpi title="Calidad de datos" value={latest ? `${latest.mergeQuality || 0}%` : "—"} meta={latest ? "última inspección real" : "sin inspección real"} icon="" tone="green" /><Kpi title="Archivos usados" value={latest?.fileNames?.length || currentFiles.length || 0} meta={hasRealData ? "fuentes del análisis" : "sin fuentes reales"} icon="" tone="blue" /><Kpi title="Historial" value={realHistory.length} meta="análisis reales guardados" icon="" tone="amber" /></div>

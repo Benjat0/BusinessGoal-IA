@@ -570,6 +570,31 @@ export type AIContext = {
   available_metrics: string[];
 };
 
+export type RetailTemplateConfidence = "HIGH" | "MEDIUM" | "LOW";
+
+export type RetailDetectedConcepts = {
+  product_identity: string[];
+  stock: string[];
+  sales: string[];
+  cost_price: string[];
+  margin: string[];
+  category_supplier: string[];
+  dates: string[];
+};
+
+export type RetailTemplateFit = {
+  template_key: "retail_ecommerce";
+  label: string;
+  fit_score: number;
+  confidence: RetailTemplateConfidence;
+  detected_concepts: RetailDetectedConcepts;
+  missing_concepts: string[];
+  recommended_files: string[];
+  business_questions_supported: string[];
+  data_readiness_summary: string;
+  warnings: string[];
+};
+
 export type AnalyzeResponse = {
   analysis_id: string;
   analysis_created_at: string;
@@ -596,6 +621,7 @@ export type AnalyzeResponse = {
   };
   impact_breakdown?: ImpactBreakdown;
   economic_value_summary?: EconomicValueSummary;
+  retail_template_fit?: RetailTemplateFit;
   analysis_snapshot?: AnalysisSnapshot;
   trust_layer?: TrustLayer;
   scenario_simulation?: ScenarioSimulation;
