@@ -6,6 +6,7 @@ from typing import Any, Dict, List
 
 import pandas as pd
 
+from .decision_scenario_engine import build_decision_scenarios
 from .economic_driver_tree import build_economic_driver_tree
 from .product_identity import resolve_product_ref
 from .utils import normalize_text
@@ -198,6 +199,7 @@ def build_decisions(
             recommendation=recommendation,
             business_profile=business_profile,
         )
+        decision["scenario_options"] = build_decision_scenarios(decision, business_profile)
         decisions.append(decision)
 
     return decisions
