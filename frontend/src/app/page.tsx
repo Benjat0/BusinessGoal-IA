@@ -43,6 +43,7 @@ import type {
   BusinessProfile,
   DecisionLocalState,
   DecisionRecord,
+  DecisionScenarioOption,
   InspectBatchResponse,
   Recommendation,
   RetailTemplateFit,
@@ -626,6 +627,9 @@ export default function Home() {
   const activeDecisions = useMemo(() => (
     hydrateDecisions(canonicalDecisions, decisionCenterMode === "DEMO" ? [] : decisionStates)
   ), [canonicalDecisions, decisionCenterMode, decisionStates]);
+  const scenarioLabDecisions = useMemo(() => (
+    activeDecisions.length ? activeDecisions : hydrateDecisions(DEMO_DECISIONS, [])
+  ), [activeDecisions]);
 
   useEffect(() => {
     if (previousAnalysisIdRef.current === activeAnalysisId) return;
@@ -665,7 +669,7 @@ export default function Home() {
 
   function applyDecisionUpdate(
     decision: DecisionRecord,
-    updates: Partial<Pick<DecisionLocalState, "status" | "selected_strategy" | "economic_target" | "target_date" | "user_note">>,
+    updates: Partial<Pick<DecisionLocalState, "status" | "selected_strategy" | "selected_scenario" | "economic_target" | "target_date" | "user_note">>,
     toastMessage?: string,
   ) {
     if (isDemoId(decision.id)) {
@@ -803,7 +807,15 @@ export default function Home() {
             onSelectDecision={setSelectedDecision}
           />
         )}
-        {activeTab === "scenarios" && <ScenariosView scenarios={scenarios} selectedScenario={selectedScenario} setSelectedScenario={setSelectedScenario} />}
+        {activeTab === "scenarios" && (
+          <ScenariosView
+            decisions={scenarioLabDecisions}
+            scenarios={scenarios}
+            selectedScenario={selectedScenario}
+            setSelectedScenario={setSelectedScenario}
+            onSelectDecision={setSelectedDecision}
+          />
+        )}
         {activeTab === "data" && <DataView currentFiles={currentFiles} history={history} result={result} onOpenWizard={openWizard} />}
         {activeTab === "products" && <ProductCatalogTable products={filteredProducts} result={result} />}
         {activeTab === "inventory" && <InventorySalesView mode="inventory" result={result} products={filteredProducts} />}
@@ -1256,17 +1268,132 @@ function AnalysisView({
   );
 }
 
-function ScenariosView({ scenarios, selectedScenario, setSelectedScenario }: { scenarios?: ScenarioSimulation; selectedScenario: string; setSelectedScenario: (id: string) => void }) {
+function decisionScenarioEstimate(scenario: DecisionScenarioOption): number | null {
+  return (
+    scenario.estimated_effects.cash_release_estimate
+    ?? scenario.estimated_effects.margin_improvement_estimate
+    ?? scenario.estimated_effects.gross_margin_protected_estimate
+    ?? scenario.estimated_effects.net_economic_estimate
+    ?? null
+  );
+}
+
+function decisionScenarioImpactLabel(scenario: DecisionScenarioOption): string {
+  if (scenario.estimated_effects.cash_release_estimate !== null) return "Caja liberable";
+  if (scenario.estimated_effects.margin_improvement_estimate !== null) return "Margen mejorable";
+  if (scenario.estimated_effects.gross_margin_protected_estimate !== null) return "Margen expuesto";
+  return "Magnitud económica estimada";
+}
+
+function decisionScenarioRiskLabel(risk: DecisionScenarioOption["risk_level"]) {
+  if (risk === "LOW") return "Bajo";
+  if (risk === "MEDIUM") return "Medio";
+  return "Alto";
+}
+
+function decisionScenarioRiskVariant(risk: DecisionScenarioOption["risk_level"]): "value" | "primary" | "signal" {
+  if (risk === "HIGH") return "signal";
+  if (risk === "MEDIUM") return "primary";
+  return "value";
+}
+
+function decisionScenarioValue(value: number | null) {
+  return value === null ? "Sin estimación" : formatCurrency(value);
+}
+
+function ScenariosView({
+  decisions,
+  scenarios,
+  selectedScenario,
+  setSelectedScenario,
+  onSelectDecision,
+}: {
+  decisions: DecisionRecord[];
+  scenarios?: ScenarioSimulation;
+  selectedScenario: string;
+  setSelectedScenario: (id: string) => void;
+  onSelectDecision: (decision: DecisionRecord) => void;
+}) {
+  const hasRealDecisions = decisions.some((decision) => !isDemoId(decision.id));
+
   return (
     <div className="space-y-5">
       <Card>
         <p className="page-overline">Scenario Lab</p>
-        <h1 className="mt-2 text-2xl font-semibold text-[var(--text-primary)]">Escenarios</h1>
+        <h1 className="mt-2 text-2xl font-semibold text-[var(--text-primary)]">Escenarios por decisión</h1>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--text-secondary)]">
-          Compara alternativas orientativas del análisis activo antes de decidir. Cada escenario muestra impacto estimado, confianza y supuestos utilizados.
+          Compara alternativas orientativas por decisión canónica antes de registrar una acción. Cada escenario muestra impacto estimado, riesgo operativo y supuestos.
         </p>
+        {!hasRealDecisions ? <Badge className="mt-4" variant="neutral">Usando decisiones demo</Badge> : null}
       </Card>
-      <ScenarioSimulator scenarios={scenarios} selectedScenario={selectedScenario} setSelectedScenario={setSelectedScenario} />
+
+      <Card>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="section-title">Escenarios por decisión</h2>
+            <p className="mt-1 text-sm text-[var(--text-secondary)]">DECISIÓN → ESCENARIOS → IMPACTO ESTIMADO → RIESGO → SUPUESTOS → REGISTRAR DECISIÓN</p>
+          </div>
+          <Badge variant={hasRealDecisions ? "value" : "neutral"}>{hasRealDecisions ? "Análisis activo" : "Demo"}</Badge>
+        </div>
+
+        <div className="mt-5 space-y-4">
+          {decisions.map((decision) => (
+            <article key={decision.id} className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <div className="flex flex-wrap gap-2">
+                    <Badge variant="neutral">#{decision.rank}</Badge>
+                    <Badge variant="neutral">{decision.impact_label}</Badge>
+                    <Badge variant={decision.status === "PENDING" ? "signal" : "primary"}>{decision.status}</Badge>
+                  </div>
+                  <h3 className="mt-3 text-base font-semibold text-[var(--text-primary)]">{decision.title}</h3>
+                  <p className="mt-1 max-w-3xl text-sm leading-6 text-[var(--text-secondary)]">{decision.detection_summary}</p>
+                </div>
+                <Button onClick={() => onSelectDecision(decision)} variant="secondary" size="sm">Ver decisión</Button>
+              </div>
+
+              <div className="mt-4 grid gap-3 xl:grid-cols-3">
+                {(decision.scenario_options ?? []).slice(0, 3).map((scenario) => (
+                  <div key={scenario.id} className="rounded-lg border border-[var(--border)] bg-[var(--surface-1)] p-4">
+                    <div className="flex flex-wrap gap-2">
+                      <Badge variant={scenario.recommended ? "value" : "neutral"}>{scenario.label}</Badge>
+                      <Badge variant={decisionScenarioRiskVariant(scenario.risk_level)}>Riesgo {decisionScenarioRiskLabel(scenario.risk_level)}</Badge>
+                    </div>
+                    <p className="mt-3 text-sm leading-6 text-[var(--text-secondary)]">{scenario.description}</p>
+                    <p className="mt-4 text-xs font-medium text-[var(--text-muted)]">{decisionScenarioImpactLabel(scenario)}</p>
+                    <p className="mt-1 text-xl font-semibold text-[var(--value)]">{decisionScenarioValue(decisionScenarioEstimate(scenario))}</p>
+                    <p className="mt-2 text-xs text-[var(--text-muted)]">
+                      Horizonte: {scenario.time_horizon_days ? `${scenario.time_horizon_days} días` : "Sin dato"} · Confianza {scenario.confidence}%
+                    </p>
+                    <div className="mt-3 space-y-1">
+                      {scenario.assumptions.slice(0, 2).map((assumption) => (
+                        <p key={assumption} className="text-xs leading-5 text-[var(--text-secondary)]">{assumption}</p>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                {!decision.scenario_options?.length ? (
+                  <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-1)] p-4 text-sm text-[var(--text-secondary)]">
+                    Esta decisión todavía no incluye escenarios comparables.
+                  </div>
+                ) : null}
+              </div>
+            </article>
+          ))}
+        </div>
+      </Card>
+
+      {scenarios?.scenarios?.length ? (
+        <div className="space-y-3 opacity-90">
+          <Card>
+            <h2 className="section-title">Simulación agregada heredada</h2>
+            <p className="mt-1 text-sm leading-6 text-[var(--text-secondary)]">
+              Vista secundaria del análisis agregado existente. Los escenarios por decisión son la referencia principal para registrar acciones.
+            </p>
+          </Card>
+          <ScenarioSimulator scenarios={scenarios} selectedScenario={selectedScenario} setSelectedScenario={setSelectedScenario} />
+        </div>
+      ) : null}
     </div>
   );
 }
