@@ -12,6 +12,8 @@ import type {
   AnalyzeResponse,
   Decision,
   DecisionRecord,
+  DecisionScenarioEffects,
+  DecisionScenarioOption,
   DecisionStatus,
   EconomicDriverBranch,
   EconomicDriverSeverity,
@@ -24,6 +26,7 @@ import type {
 type DecisionUpdate = {
   status?: DecisionStatus;
   selected_strategy?: string | null;
+  selected_scenario?: string | null;
   economic_target?: number | null;
   target_date?: string | null;
   user_note?: string | null;
@@ -50,6 +53,178 @@ const ECONOMIC_CLASS = {
   grossMarginAtRisk: ["GROSS", "MARGIN", "AT", "RISK"].join("_"),
   other: "OTHER",
 } as const;
+
+function scenarioEffects(values: Partial<DecisionScenarioEffects>): DecisionScenarioEffects {
+  return {
+    cash_release_estimate: values.cash_release_estimate ?? null,
+    margin_improvement_estimate: values.margin_improvement_estimate ?? null,
+    gross_margin_protected_estimate: values.gross_margin_protected_estimate ?? null,
+    net_economic_estimate: values.net_economic_estimate ?? null,
+  };
+}
+
+function demoScenarioOptions(
+  decisionId: string,
+  kind: "cash" | "margin" | "stockout",
+  baseImpact: number,
+): DecisionScenarioOption[] {
+  if (kind === "cash") {
+    return [
+      {
+        id: `${decisionId}:conservative`,
+        decision_id: decisionId,
+        scenario_key: "conservative",
+        label: "Conservador",
+        description: "Reducir stock objetivo 10% con descuento operativo limitado.",
+        scenario_type: "STOCK_REDUCTION",
+        parameters: { stock_reduction_pct: 10, max_discount_pct: 5, target_coverage_days: 180 },
+        estimated_effects: scenarioEffects({ cash_release_estimate: baseImpact * 0.5, net_economic_estimate: baseImpact * 0.5 }),
+        risk_level: "LOW",
+        confidence: 90,
+        time_horizon_days: 30,
+        assumptions: ["La estimación usa la magnitud económica demo como base.", "La caja liberable no equivale a beneficio contable."],
+        warnings: ["Validar stock real antes de ejecutar descuentos."],
+        recommended: false,
+      },
+      {
+        id: `${decisionId}:recommended`,
+        decision_id: decisionId,
+        scenario_key: "recommended",
+        label: "Recomendado",
+        description: "Reducir stock objetivo 20% y revisar reposiciones de productos con baja rotación.",
+        scenario_type: "STOCK_REDUCTION",
+        parameters: { stock_reduction_pct: 20, max_discount_pct: 10, target_coverage_days: 180 },
+        estimated_effects: scenarioEffects({ cash_release_estimate: baseImpact, net_economic_estimate: baseImpact }),
+        risk_level: "MEDIUM",
+        confidence: 91,
+        time_horizon_days: 30,
+        assumptions: ["La estimación usa la magnitud económica demo como base.", "El descuento máximo es un supuesto operativo."],
+        warnings: ["Caja liberable no debe interpretarse como beneficio."],
+        recommended: true,
+      },
+      {
+        id: `${decisionId}:intensive`,
+        decision_id: decisionId,
+        scenario_key: "intensive",
+        label: "Intensivo",
+        description: "Reducir stock objetivo 35% con mayor presión comercial y más riesgo operativo.",
+        scenario_type: "STOCK_REDUCTION",
+        parameters: { stock_reduction_pct: 35, max_discount_pct: 18, target_coverage_days: 120 },
+        estimated_effects: scenarioEffects({ cash_release_estimate: Math.round(baseImpact * 1.75), net_economic_estimate: Math.round(baseImpact * 1.75) }),
+        risk_level: "HIGH",
+        confidence: 85,
+        time_horizon_days: 45,
+        assumptions: ["La estimación usa la magnitud económica demo como base.", "El escenario requiere seguimiento operativo cercano."],
+        warnings: ["Mayor descuento puede tensionar margen y percepción comercial."],
+        recommended: false,
+      },
+    ];
+  }
+
+  if (kind === "margin") {
+    return [
+      {
+        id: `${decisionId}:conservative`,
+        decision_id: decisionId,
+        scenario_key: "conservative",
+        label: "Conservador",
+        description: "Revisar precio +2% en productos con margen bajo.",
+        scenario_type: "MARGIN_REVIEW",
+        parameters: { price_adjustment_pct: 2, target_margin_pct: 20, estimated_unit_variation_pct: -2 },
+        estimated_effects: scenarioEffects({ margin_improvement_estimate: Math.round(baseImpact * 0.4), net_economic_estimate: Math.round(baseImpact * 0.4) }),
+        risk_level: "LOW",
+        confidence: 83,
+        time_horizon_days: 30,
+        assumptions: ["La estimación usa la magnitud económica demo como base.", "La variación de unidades es una hipótesis operativa."],
+        warnings: ["Validar reacción comercial antes de aplicar cambios amplios."],
+        recommended: false,
+      },
+      {
+        id: `${decisionId}:recommended`,
+        decision_id: decisionId,
+        scenario_key: "recommended",
+        label: "Recomendado",
+        description: "Revisar precio +5% y validar margen objetivo antes de escalar.",
+        scenario_type: "MARGIN_REVIEW",
+        parameters: { price_adjustment_pct: 5, target_margin_pct: 35, estimated_unit_variation_pct: -5 },
+        estimated_effects: scenarioEffects({ margin_improvement_estimate: baseImpact, net_economic_estimate: baseImpact }),
+        risk_level: "MEDIUM",
+        confidence: 84,
+        time_horizon_days: 30,
+        assumptions: ["La estimación usa la magnitud económica demo como base.", "El ajuste es un escenario para comparar alternativas."],
+        warnings: ["El efecto depende de elasticidad de demanda no estimada con estos datos."],
+        recommended: true,
+      },
+      {
+        id: `${decisionId}:intensive`,
+        decision_id: decisionId,
+        scenario_key: "intensive",
+        label: "Intensivo",
+        description: "Revisar precio +8% con mayor sensibilidad comercial.",
+        scenario_type: "MARGIN_REVIEW",
+        parameters: { price_adjustment_pct: 8, target_margin_pct: 35, estimated_unit_variation_pct: -10 },
+        estimated_effects: scenarioEffects({ margin_improvement_estimate: Math.round(baseImpact * 1.6), net_economic_estimate: Math.round(baseImpact * 1.6) }),
+        risk_level: "HIGH",
+        confidence: 77,
+        time_horizon_days: 30,
+        assumptions: ["La estimación usa la magnitud económica demo como base.", "El escenario requiere seguimiento de demanda."],
+        warnings: ["Aplicar primero en un subconjunto si el cambio afecta a muchos productos."],
+        recommended: false,
+      },
+    ];
+  }
+
+  return [
+    {
+      id: `${decisionId}:conservative`,
+      decision_id: decisionId,
+      scenario_key: "conservative",
+      label: "Conservador",
+      description: "Reponer mínimo de seguridad para reducir exposición inmediata.",
+      scenario_type: "STOCKOUT_PROTECTION",
+      parameters: { minimum_stock_units: 5, demand_window_days: 7, replenishment_intensity: 0.5 },
+      estimated_effects: scenarioEffects({ gross_margin_protected_estimate: baseImpact * 0.5, net_economic_estimate: baseImpact * 0.5 }),
+      risk_level: "LOW",
+      confidence: 86,
+      time_horizon_days: 7,
+      assumptions: ["La estimación usa la magnitud económica demo como base.", "El margen protegido es una magnitud expuesta."],
+      warnings: ["Validar stock real y pedidos pendientes."],
+      recommended: false,
+    },
+    {
+      id: `${decisionId}:recommended`,
+      decision_id: decisionId,
+      scenario_key: "recommended",
+      label: "Recomendado",
+      description: "Reponer cobertura estimada de 14 días y revisar productos con mayor salida.",
+      scenario_type: "STOCKOUT_PROTECTION",
+      parameters: { minimum_stock_units: 10, demand_window_days: 14, replenishment_intensity: 1 },
+      estimated_effects: scenarioEffects({ gross_margin_protected_estimate: baseImpact, net_economic_estimate: baseImpact }),
+      risk_level: "MEDIUM",
+      confidence: 87,
+      time_horizon_days: 14,
+      assumptions: ["La estimación usa la magnitud económica demo como base.", "La cobertura de reposición es un supuesto de escenario."],
+      warnings: ["El margen expuesto no equivale a venta perdida confirmada."],
+      recommended: true,
+    },
+    {
+      id: `${decisionId}:intensive`,
+      decision_id: decisionId,
+      scenario_key: "intensive",
+      label: "Intensivo",
+      description: "Reponer cobertura estimada de 30 días con mayor inmovilización operativa.",
+      scenario_type: "STOCKOUT_PROTECTION",
+      parameters: { minimum_stock_units: 20, demand_window_days: 30, replenishment_intensity: 1.5 },
+      estimated_effects: scenarioEffects({ gross_margin_protected_estimate: baseImpact * 1.5, net_economic_estimate: baseImpact * 1.5 }),
+      risk_level: "HIGH",
+      confidence: 82,
+      time_horizon_days: 30,
+      assumptions: ["La estimación usa la magnitud económica demo como base.", "El escenario incrementa la exposición de stock."],
+      warnings: ["Validar plazo de proveedor antes de ampliar cobertura."],
+      recommended: false,
+    },
+  ];
+}
 
 export const DEMO_DECISIONS: Decision[] = [
   {
@@ -91,6 +266,7 @@ export const DEMO_DECISIONS: Decision[] = [
         kpi_snapshot: { stock_units: 140, units_sold: 12, inventory_value: 4200, stock_coverage_days: 280 },
       },
     ],
+    scenario_options: demoScenarioOptions("demo-decision-cash-release", "cash", 18400),
     economic_driver_tree: {
       decision_id: "demo-decision-cash-release",
       decision_key: "excess_stock:cash_release",
@@ -186,6 +362,7 @@ export const DEMO_DECISIONS: Decision[] = [
         kpi_snapshot: { units_sold: 88, gross_margin_pct: 16.5, gross_profit_estimated: 920 },
       },
     ],
+    scenario_options: demoScenarioOptions("demo-decision-margin", "margin", 6750),
     economic_driver_tree: {
       decision_id: "demo-decision-margin",
       decision_key: "low_margin_high_sales:margin_improvement",
@@ -281,6 +458,7 @@ export const DEMO_DECISIONS: Decision[] = [
         kpi_snapshot: { stock_units: 2, units_sold: 54, gross_profit_estimated: 1400 },
       },
     ],
+    scenario_options: demoScenarioOptions("demo-decision-stockout", "stockout", 4200),
     economic_driver_tree: {
       decision_id: "demo-decision-stockout",
       decision_key: "stockout_risk:sales_protection",
@@ -489,6 +667,67 @@ function economicClassLabel(value: string): string {
   return map[value] || "Magnitud económica estimada";
 }
 
+function scenarioPrimaryEstimate(scenario: DecisionScenarioOption): number | null {
+  const effects = scenario.estimated_effects;
+  return (
+    effects.cash_release_estimate
+    ?? effects.margin_improvement_estimate
+    ?? effects.gross_margin_protected_estimate
+    ?? effects.net_economic_estimate
+    ?? null
+  );
+}
+
+function scenarioImpactLabel(scenario: DecisionScenarioOption): string {
+  if (scenario.estimated_effects.cash_release_estimate !== null) return "Caja liberable";
+  if (scenario.estimated_effects.margin_improvement_estimate !== null) return "Margen mejorable";
+  if (scenario.estimated_effects.gross_margin_protected_estimate !== null) return "Margen expuesto";
+  return "Magnitud económica estimada";
+}
+
+function formatScenarioEstimate(value: number | null): string {
+  return value === null ? "Sin estimación" : formatCurrency(value);
+}
+
+function scenarioRiskLabel(risk: DecisionScenarioOption["risk_level"]): string {
+  if (risk === "LOW") return "Bajo";
+  if (risk === "MEDIUM") return "Medio";
+  return "Alto";
+}
+
+function scenarioRiskVariant(risk: DecisionScenarioOption["risk_level"]) {
+  if (risk === "HIGH") return "signal" as const;
+  if (risk === "MEDIUM") return "primary" as const;
+  return "value" as const;
+}
+
+function scenarioParameterLabel(key: string): string {
+  const map: Record<string, string> = {
+    stock_reduction_pct: "Reducción stock",
+    max_discount_pct: "Descuento máximo",
+    target_coverage_days: "Cobertura objetivo",
+    price_adjustment_pct: "Ajuste precio",
+    target_margin_pct: "Margen objetivo",
+    estimated_unit_variation_pct: "Variación unidades",
+    minimum_stock_units: "Stock mínimo",
+    demand_window_days: "Ventana demanda",
+    replenishment_intensity: "Intensidad reposición",
+    relative_intensity: "Intensidad relativa",
+  };
+  return map[key] || key;
+}
+
+function scenarioParameterValue(key: string, value: string | number | boolean | null): string {
+  if (value === null) return "Sin dato";
+  if (typeof value === "boolean") return value ? "Sí" : "No";
+  if (typeof value === "string") return value;
+  if (key.endsWith("_pct")) return `${formatNumber(value, 0)}%`;
+  if (key.endsWith("_days")) return `${formatNumber(value, 0)} días`;
+  if (key.endsWith("_units")) return `${formatNumber(value, 0)} uds`;
+  if (key.includes("intensity")) return formatNumber(value, 2);
+  return formatNumber(value, 0);
+}
+
 function evidenceProductLabel(item: DecisionRecord["evidence_items"][number]) {
   return item.product_ref.name || item.product_ref.sku || item.product_ref.identity_key || item.id.slice(0, 8);
 }
@@ -673,6 +912,7 @@ function SummaryTile({ label, value }: { label: string; value: number }) {
 
 export function DecisionDetailDrawer({ decision, onClose, onUpdate }: DecisionDetailDrawerProps) {
   const [selectedStrategy, setSelectedStrategy] = useState(decision.selected_strategy ?? "");
+  const [selectedScenarioId, setSelectedScenarioId] = useState(decision.selected_scenario ?? "");
   const [economicTarget, setEconomicTarget] = useState(decision.economic_target === null ? "" : String(decision.economic_target));
   const [targetDate, setTargetDate] = useState(decision.target_date ?? "");
   const [userNote, setUserNote] = useState(decision.user_note ?? "");
@@ -681,12 +921,21 @@ export function DecisionDetailDrawer({ decision, onClose, onUpdate }: DecisionDe
     ? transitions.filter((nextStatus) => nextStatus !== "DECIDED")
     : transitions;
   const visibleEvidence = decision.evidence_items.slice(0, 5);
+  const selectedScenario = decision.scenario_options?.find((scenario) => scenario.id === selectedScenarioId) ?? null;
+
+  function useScenario(scenario: DecisionScenarioOption) {
+    const estimate = scenarioPrimaryEstimate(scenario);
+    setSelectedScenarioId(scenario.id);
+    setSelectedStrategy(`${scenario.label}: ${scenario.description}`);
+    if (estimate !== null) setEconomicTarget(String(estimate));
+  }
 
   function submitRegistration() {
     const parsedTarget = economicTarget.trim() ? Number(economicTarget) : null;
     onUpdate(decision, {
       status: "DECIDED",
       selected_strategy: selectedStrategy.trim() || null,
+      selected_scenario: selectedScenarioId || null,
       economic_target: parsedTarget !== null && Number.isFinite(parsedTarget) ? parsedTarget : null,
       target_date: targetDate || null,
       user_note: userNote.trim() || null,
@@ -712,6 +961,12 @@ export function DecisionDetailDrawer({ decision, onClose, onUpdate }: DecisionDe
         </section>
 
         <EconomicDriverTreeSection decision={decision} />
+
+        <DecisionScenarioSection
+          decision={decision}
+          selectedScenarioId={selectedScenarioId}
+          onUseScenario={useScenario}
+        />
 
         <TextSection title="Detección" text={decision.detection_summary} />
         <TextSection title="Por qué importa" text={decision.why_it_matters} />
@@ -759,6 +1014,12 @@ export function DecisionDetailDrawer({ decision, onClose, onUpdate }: DecisionDe
           <p className="text-sm font-semibold text-[var(--text-primary)]">Registro / ciclo de vida</p>
           {decision.status === "PENDING" ? (
             <div className="mt-4 space-y-3">
+              {selectedScenario ? (
+                <InfoRow
+                  label="Escenario seleccionado"
+                  value={`${selectedScenario.label} · ${scenarioImpactLabel(selectedScenario)} ${formatScenarioEstimate(scenarioPrimaryEstimate(selectedScenario))}`}
+                />
+              ) : null}
               <input value={selectedStrategy} onChange={(event) => setSelectedStrategy(event.target.value)} placeholder="Estrategia seleccionada" className="app-input w-full rounded-xl px-4 py-3 text-sm outline-none" />
               <div className="grid gap-3 sm:grid-cols-2">
                 <input value={economicTarget} onChange={(event) => setEconomicTarget(event.target.value)} type="number" placeholder="Objetivo económico" className="app-input w-full rounded-xl px-4 py-3 text-sm outline-none" />
@@ -769,6 +1030,7 @@ export function DecisionDetailDrawer({ decision, onClose, onUpdate }: DecisionDe
             </div>
           ) : (
             <div className="mt-4 grid gap-3 text-sm text-[var(--text-secondary)]">
+              {decision.selected_scenario ? <InfoRow label="Escenario seleccionado" value={decision.selected_scenario.split(":").pop() || decision.selected_scenario} /> : null}
               {decision.selected_strategy ? <InfoRow label="Estrategia" value={decision.selected_strategy} /> : null}
               {decision.economic_target !== null ? <InfoRow label="Objetivo económico" value={formatCurrency(decision.economic_target)} /> : null}
               {decision.target_date ? <InfoRow label="Fecha objetivo" value={decision.target_date} /> : null}
@@ -809,6 +1071,75 @@ export function DecisionDetailDrawer({ decision, onClose, onUpdate }: DecisionDe
         </section>
       </div>
     </DrawerShell>
+  );
+}
+
+function DecisionScenarioSection({
+  decision,
+  selectedScenarioId,
+  onUseScenario,
+}: {
+  decision: DecisionRecord;
+  selectedScenarioId: string;
+  onUseScenario: (scenario: DecisionScenarioOption) => void;
+}) {
+  const scenarios = decision.scenario_options ?? [];
+  if (!scenarios.length) return null;
+
+  return (
+    <section className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-sm font-semibold text-[var(--text-primary)]">Escenarios de decisión</p>
+          <p className="mt-1 text-sm leading-6 text-[var(--text-secondary)]">
+            Compara alternativas orientativas antes de registrar la decisión. Las cifras son estimaciones basadas en los datos analizados.
+          </p>
+        </div>
+        <Badge variant="neutral">{scenarios.length} escenarios</Badge>
+      </div>
+
+      <div className="mt-4 grid gap-3 xl:grid-cols-3">
+        {scenarios.map((scenario) => {
+          const estimate = scenarioPrimaryEstimate(scenario);
+          const selected = selectedScenarioId === scenario.id;
+          return (
+            <article
+              key={scenario.id}
+              className={cn(
+                "rounded-lg border bg-[var(--surface-1)] p-4",
+                selected ? "border-[rgba(91,115,242,0.52)]" : "border-[var(--border)]",
+              )}
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant={selected ? "primary" : "neutral"}>{scenario.label}</Badge>
+                {scenario.recommended ? <Badge variant="value">Recomendado</Badge> : null}
+                <Badge variant={scenarioRiskVariant(scenario.risk_level)}>Riesgo {scenarioRiskLabel(scenario.risk_level)}</Badge>
+              </div>
+              <p className="mt-3 text-sm leading-6 text-[var(--text-secondary)]">{scenario.description}</p>
+              <div className="mt-4 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3">
+                <p className="text-xs font-medium text-[var(--text-muted)]">{scenarioImpactLabel(scenario)}</p>
+                <p className="mt-1 text-xl font-semibold text-[var(--value)]">{formatScenarioEstimate(estimate)}</p>
+                <p className="mt-1 text-xs text-[var(--text-muted)]">
+                  Horizonte: {scenario.time_horizon_days ? `${formatNumber(scenario.time_horizon_days, 0)} días` : "Sin dato"} · Confianza {formatNumber(scenario.confidence, 0)}%
+                </p>
+              </div>
+              <div className="mt-4 flex flex-wrap gap-2">
+                {Object.entries(scenario.parameters).slice(0, 4).map(([key, value]) => (
+                  <Badge key={key} variant="neutral">
+                    {scenarioParameterLabel(key)}: {scenarioParameterValue(key, value)}
+                  </Badge>
+                ))}
+              </div>
+              <ListBlock title="Supuestos" items={scenario.assumptions.slice(0, 3)} />
+              <ListBlock title="Advertencias" items={scenario.warnings.slice(0, 3)} />
+              <Button onClick={() => onUseScenario(scenario)} className="mt-4 w-full" variant={selected ? "primary" : "secondary"} size="sm">
+                Usar este escenario
+              </Button>
+            </article>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
