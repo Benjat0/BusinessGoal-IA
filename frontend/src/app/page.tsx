@@ -40,6 +40,7 @@ import type {
   AnalysisComparison,
   AnalysisSnapshot,
   AnalyzeResponse,
+  AuditCore,
   BusinessProfile,
   DecisionLocalState,
   DecisionRecord,
@@ -1484,6 +1485,61 @@ function RetailTemplateFitCard({ fit }: { fit: RetailTemplateFit }) {
   );
 }
 
+function AuditCoreCard({ audit }: { audit: AuditCore }) {
+  const unavailable = audit.areas.filter((area) => area.status !== "ASSESSED");
+  const confidenceVariant = audit.data_readiness.confidence === "HIGH"
+    ? "value"
+    : audit.data_readiness.confidence === "MEDIUM"
+      ? "signal"
+      : "risk";
+
+  return (
+    <Card>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="page-overline">Audit Core {audit.version}</p>
+          <h2 className="mt-2 text-lg font-semibold text-[var(--text-primary)]">Alcance de auditoría y calidad de datos</h2>
+          <p className="mt-1 text-sm leading-6 text-[var(--text-secondary)]">{audit.data_readiness.summary}</p>
+        </div>
+        <Badge variant={confidenceVariant}>Datos {audit.data_readiness.score}% · confianza {audit.data_readiness.confidence === "HIGH" ? "alta" : audit.data_readiness.confidence === "MEDIUM" ? "media" : "baja"}</Badge>
+      </div>
+
+      <div className="mt-5 grid gap-3 md:grid-cols-3">
+        <Metric label="Áreas evaluables" value={audit.assessed_area_count + "/" + audit.total_area_count} supporting="según cobertura actual" tone="primary" />
+        <Metric label="Estado global" value="Parcial" supporting="no es una salud global" tone="signal" />
+        <Metric label="Puntuación empresarial" value="—" supporting="bloqueada con datos parciales" tone="neutral" />
+      </div>
+
+      <div className="mt-5 grid gap-3 md:grid-cols-2">
+        {audit.areas.map((area) => (
+          <div key={area.key} className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3">
+            <div className="flex items-start justify-between gap-3">
+              <p className="font-semibold text-[var(--text-primary)]">{area.label}</p>
+              <Badge variant={area.status === "ASSESSED" ? "value" : "neutral"}>{area.status === "ASSESSED" ? "Evaluada" : "No evaluada"}</Badge>
+            </div>
+            <p className="mt-2 text-xs leading-5 text-[var(--text-secondary)]">
+              {area.status === "ASSESSED"
+                ? "Cobertura disponible: " + formatNumber(area.confidence) + "%."
+                : area.next_inputs.length
+                  ? "Faltan datos para evaluarla: " + area.next_inputs.slice(0, 2).join(" · ")
+                  : "Este alcance requiere una futura plantilla sectorial."}
+            </p>
+          </div>
+        ))}
+      </div>
+
+      {unavailable.length && audit.recommended_next_inputs.length ? (
+        <div className="mt-5 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4">
+          <p className="text-sm font-semibold text-[var(--text-primary)]">Para ampliar la auditoría</p>
+          <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">{audit.recommended_next_inputs.slice(0, 4).join(" · ")}</p>
+        </div>
+      ) : null}
+
+      <p className="mt-4 text-xs leading-5 text-[var(--text-muted)]">{audit.limitations[0]}</p>
+    </Card>
+  );
+}
+
 function DataView({ currentFiles, history, result, onOpenWizard }: { currentFiles: [UploadRole, File][]; history: HistoryItem[]; result: AnalyzeResponse | null; onOpenWizard: () => void }) {
   const realHistory = history.filter((item) => !isDemoId(item.id));
   const latest = realHistory[0];
@@ -1497,6 +1553,7 @@ function DataView({ currentFiles, history, result, onOpenWizard }: { currentFile
     <div className="space-y-5">
       <Card><div className="flex items-center justify-between gap-4"><div><h1 className="text-2xl font-semibold text-[var(--text-primary)]">Datos</h1><p className="mt-1 text-sm text-[var(--text-secondary)]">Carga, validación y estado de procesamiento de las fuentes usadas por BusinessGoal.</p></div><Button onClick={onOpenWizard} variant="primary">Actualizar datos</Button></div></Card>
       {retailFit ? <RetailTemplateFitCard fit={retailFit} /> : null}
+      {result?.audit_core ? <AuditCoreCard audit={result.audit_core} /> : null}
       <Card>
         <div className="mb-5 flex items-center justify-between"><div><h2 className="section-title">Estado de datos conectados</h2><p className="text-sm text-[var(--text-secondary)]">Último análisis real, calidad de unión y fuentes procesadas.</p></div><Badge variant={hasRealData ? "value" : "neutral"}>{hasRealData ? "Operativo" : "Demo"}</Badge></div>
         <div className="grid gap-4 md:grid-cols-3"><Kpi title="Calidad de datos" value={latest ? `${latest.mergeQuality || 0}%` : "—"} meta={latest ? "última inspección real" : "sin inspección real"} icon="" tone="green" /><Kpi title="Archivos usados" value={latest?.fileNames?.length || currentFiles.length || 0} meta={hasRealData ? "fuentes del análisis" : "sin fuentes reales"} icon="" tone="blue" /><Kpi title="Historial" value={realHistory.length} meta="análisis reales guardados" icon="" tone="amber" /></div>
