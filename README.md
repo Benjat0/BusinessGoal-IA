@@ -1,90 +1,49 @@
 # BusinessGoal IA
 
-**BusinessGoal IA** es una aplicación web/SaaS B2B orientada a analizar archivos de negocio, especialmente Excel y CSV de inventario, ventas y productos, para detectar oportunidades económicas, capital inmovilizado, riesgos operativos, margen mejorable y acciones recomendadas.
+BusinessGoal IA es una aplicación B2B de inteligencia de decisiones para empresas con catálogo, ventas, stock, costes y precios. Convierte CSV/XLS/XLSX en una lectura auditable: qué datos son utilizables, qué áreas pueden evaluarse, qué señales económicas se detectan y qué decisión conviene revisar.
 
-## Estado actual
+## Estado del producto
 
-**MVP Demo Ready v18 — Export & Sidebar Fix**
+La rama `main` contiene el MVP demo y la evolución v20 del Decision Center:
 
-Esta versión está validada como demo funcional del MVP. El objetivo de esta rama es conservar una versión estable para demostraciones, pruebas internas y futuras evoluciones controladas.
+- carga, inspección y mapeo de CSV/XLS/XLSX;
+- análisis simple y multiarchivo de inventario, ventas y catálogo;
+- cálculo determinista de métricas y cobertura de datos;
+- decisiones canónicas con evidencia, prioridad, hipótesis y ciclo de vida local;
+- árbol de impulsores económicos;
+- escenarios conservador, recomendado e intensivo por decisión;
+- plantilla de encaje Retail / ecommerce;
+- informe ejecutivo y exportaciones.
 
-## Funcionalidades principales
+La rama `codex/v21-0-audit-core-data-readiness` añade Audit Core v21.0: separa la calidad de datos de la salud empresarial y muestra de forma explícita qué áreas son o no evaluables.
 
-* Subida de archivos CSV, XLS y XLSX.
-* Análisis de inventario, ventas y productos.
-* Soporte para análisis multiarchivo:
+## Principio de producto
 
-  * archivo combinado,
-  * inventario,
-  * ventas.
-* Inspección automática de columnas.
-* Mapeo de campos de negocio.
-* Cálculo de KPIs ejecutivos.
-* Detección de:
+BusinessGoal no es un dashboard genérico ni un chatbot empresarial.
 
-  * capital inmovilizado,
-  * exceso de stock,
-  * riesgo de rotura,
-  * productos con bajo margen,
-  * oportunidades de mejora económica.
-* Dashboard ejecutivo.
-* Decision Feed con recomendaciones accionables.
-* Vista de productos analizados.
-* Historial local de análisis.
-* Exportación CSV de:
-
-  * productos,
-  * inventario,
-  * ventas,
-  * historial.
-* Informe ejecutivo exportable/imprimible como PDF desde el navegador.
-
-## Stack técnico
-
-### Frontend
-
-* Next.js
-* TypeScript
-* React
-* Tailwind CSS
-
-### Backend
-
-* FastAPI
-* Python
-* pandas
-* openpyxl
-* xlrd
-* pydantic
-
-## Estructura del proyecto
+Su flujo es:
 
 ```text
-BusinessGoal-IA/
-├── backend/
-│   ├── main.py
-│   ├── requirements.txt
-│   └── core/
-│
-├── frontend/
-│   ├── package.json
-│   ├── app/
-│   ├── components/
-│   └── ...
-│
-├── samples/
-│   ├── sample_inventory_only.csv
-│   ├── sample_retail_inventory.csv
-│   └── sample_sales_only.csv
-│
-├── docs/
-├── README.md
-└── .gitignore
+datos → cobertura y evidencia → diagnóstico → decisión priorizada →
+acción aprobada → medición posterior
 ```
 
-## Cómo ejecutar el backend
+Las cifras económicas se presentan con su semántica: caja liberable, margen mejorable o margen expuesto. No se suman como si fueran un beneficio garantizado.
 
-Desde la raíz del proyecto:
+## Alcance actual
+
+El motor actual está validado para retail, e-commerce, distribución y negocios con catálogo. La expansión multisector se hará mediante un Audit Core común y plantillas específicas de datos y reglas, no interpretando cualquier documento sin límites.
+
+Consulta [Audit Core v21.0](docs/product/v21-audit-core-data-readiness.md) para el alcance, contrato y exclusiones de la fase.
+
+## Stack
+
+- Frontend: Next.js, React, TypeScript, Tailwind CSS.
+- Backend: FastAPI, Python, pandas, openpyxl, xlrd y pydantic.
+
+## Ejecución local
+
+### Backend
 
 ```bash
 cd backend
@@ -94,38 +53,9 @@ pip install -r requirements.txt
 uvicorn main:app --reload
 ```
 
-El backend quedará disponible normalmente en:
+Backend: `http://127.0.0.1:8000`
 
-```text
-http://127.0.0.1:8000
-```
-
-Endpoint de salud:
-
-```text
-http://127.0.0.1:8000/health
-```
-
-## Endpoints principales del backend
-
-```text
-GET  /health
-POST /inspect
-POST /analyze
-POST /inspect-batch
-POST /analyze-batch
-```
-
-Los endpoints principales para la demo multiarchivo son:
-
-```text
-POST /inspect-batch
-POST /analyze-batch
-```
-
-## Cómo ejecutar el frontend
-
-Desde la raíz del proyecto:
+### Frontend
 
 ```bash
 cd frontend
@@ -133,120 +63,37 @@ npm install
 npm run dev
 ```
 
-Abrir en el navegador:
+Frontend: `http://localhost:3000`
+
+## Endpoints
 
 ```text
-http://localhost:3000
+GET  /health
+POST /inspect
+POST /analyze
+POST /inspect-batch
+POST /analyze-batch
+POST /compare-analysis-snapshots
 ```
 
-Para validar build de producción:
+## Validación
 
 ```bash
-npm run build
+python -m unittest discover -s backend/tests -p "test*.py"
+cd frontend && npm run build
+cd frontend && ./node_modules/.bin/tsc --noEmit
+git diff --check
 ```
 
-## Flujo recomendado de prueba
+## Próximos bloques de producto
 
-1. Arrancar el backend.
-2. Arrancar el frontend.
-3. Abrir `http://localhost:3000`.
-4. Subir archivos demo desde `samples/`:
+1. Validar Audit Core con empresas retail/e-commerce reales.
+2. Persistir organizaciones, análisis, decisiones y seguimiento.
+3. Incorporar seguridad SaaS: autenticación, aislamiento por tenant, RBAC, auditoría y borrado de datos.
+4. Medir resultado observado frente a estimación.
+5. Añadir una segunda plantilla sectorial únicamente tras validar la primera.
+6. Ampliar a documentos e integraciones con revisión humana cuando la fuente sea ambigua.
 
-   * `sample_inventory_only.csv`
-   * `sample_sales_only.csv`
-   * opcionalmente `sample_retail_inventory.csv`
-5. Inspeccionar columnas.
-6. Generar análisis.
-7. Revisar:
+## Seguridad y datos
 
-   * KPIs ejecutivos,
-   * Decision Feed,
-   * productos,
-   * inventario,
-   * ventas,
-   * historial,
-   * informe ejecutivo.
-8. Probar exportaciones CSV.
-9. Probar impresión/exportación del informe como PDF desde el navegador.
-
-## Notas de versión v18
-
-Versión centrada en estabilizar la demo del MVP.
-
-Correcciones principales:
-
-* Los botones de exportación de Productos, Inventario y Ventas generan CSV correctamente.
-* El historial permite exportar CSV.
-* El sidebar usa un layout flexible.
-* El bloque de ayuda/contacto ya no tapa el acceso a Historial.
-* El menú lateral mantiene accesible la navegación en pantallas con menor altura.
-* El informe ejecutivo puede imprimirse o exportarse como PDF desde el navegador.
-
-Esta versión se considera:
-
-```text
-MVP Demo Ready
-```
-
-## Estrategia de ramas
-
-* `main`: rama principal de desarrollo estable.
-* `mvp-demo-ready`: rama congelada para demo del MVP v18.
-* `v18-demo-ready`: tag de la versión estable validada.
-
-Las futuras mejoras deben desarrollarse en ramas separadas, por ejemplo:
-
-```text
-feature/database
-feature/auth
-feature/real-files-validation
-fix/export-buttons
-refactor/frontend-components
-```
-
-No se deben desarrollar nuevas funcionalidades directamente sobre `mvp-demo-ready`.
-
-## Checklist de validación MVP
-
-* [ ] Backend arranca correctamente.
-* [ ] Frontend arranca correctamente.
-* [ ] Se puede subir inventario + ventas.
-* [ ] Se inspeccionan columnas.
-* [ ] Se genera análisis.
-* [ ] Dashboard muestra KPIs.
-* [ ] Decision Feed muestra recomendaciones.
-* [ ] Productos exporta CSV.
-* [ ] Inventario exporta CSV.
-* [ ] Ventas exporta CSV.
-* [ ] Historial es accesible.
-* [ ] Historial exporta CSV.
-* [ ] Informe ejecutivo se puede imprimir/exportar como PDF.
-
-## Próximos pasos recomendados
-
-Próximas fases sugeridas, sin aplicar todavía en esta versión:
-
-1. Añadir base de datos.
-2. Añadir autenticación de usuarios.
-3. Crear cuentas de empresa.
-4. Guardar análisis en backend.
-5. Mejorar validación de archivos reales.
-6. Preparar deploy.
-7. Definir modelo de suscripción.
-8. Añadir sistema de pagos.
-9. Mejorar seguridad y control de datos.
-10. Refactorizar componentes frontend cuando el MVP esté más validado.
-
-## Estado de estabilidad
-
-Esta versión no debe modificarse funcionalmente sin crear una rama nueva.
-
-Para nuevas mejoras:
-
-```bash
-git checkout main
-git pull origin main
-git checkout -b feature/nombre-de-la-mejora
-```
-
-Después de validar la mejora, se podrá fusionar mediante pull request o merge controlado.
+No introducir datos reales, secretos o integraciones de clientes en el repositorio. La preparación para producción requiere almacenamiento privado de archivos, aislamiento estricto por empresa, permisos, trazabilidad y políticas de retención antes de comercializar la aplicación.
