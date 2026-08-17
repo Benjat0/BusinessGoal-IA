@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from core.analysis_period import build_analysis_period
 from core.analysis_comparison import build_analysis_comparison
 from core.analysis_snapshot import build_analysis_snapshot
+from core.audit_core import build_audit_core
 from core.business_profile import business_profile_options, parse_business_profile
 from core.decision_engine import build_decisions
 from core.economic_value import build_economic_value_summary
@@ -360,6 +361,14 @@ def _build_analysis_response(
         column_mapping=column_mapping,
         normalized_df=normalized_df,
     )
+    audit_core = build_audit_core(
+        validation=validation,
+        column_mapping=column_mapping,
+        mapping_confidence=mapping_confidence,
+        metric_coverage=metric_coverage,
+        retail_template_fit=retail_template_fit,
+        merge_summary=merge_summary,
+    )
 
     response = {
         "analysis_id": analysis_id,
@@ -381,6 +390,7 @@ def _build_analysis_response(
         "impact_breakdown": impact_breakdown,
         "economic_value_summary": economic_value_summary,
         "retail_template_fit": retail_template_fit,
+        "audit_core": audit_core,
         "analysis_snapshot": analysis_snapshot,
         "trust_layer": build_trust_layer(summary, recommendations, consolidated_recommendations),
         "scenario_simulation": scenario_simulation,
