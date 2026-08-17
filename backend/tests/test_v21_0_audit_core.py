@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import sys
 import unittest
+
+import pandas as pd
 from pathlib import Path
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -10,6 +12,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from core.audit_core import build_audit_core
+from main import _build_analysis_response
 
 
 class AuditCoreTests(unittest.TestCase):
@@ -92,6 +95,35 @@ class AuditCoreTests(unittest.TestCase):
         self.assertEqual(areas["inventory"]["status"], "NOT_ASSESSED")
         self.assertIn("Coste unitario o coste de compra", audit["recommended_next_inputs"])
         self.assertGreaterEqual(len(audit["limitations"]), 4)
+
+    def test_analysis_response_includes_audit_core(self):
+        df = pd.DataFrame([
+            {
+                "sku": "SKU-1",
+                "product_name": "Producto",
+                "stock_units": 8,
+                "unit_cost": 10,
+                "sale_price": 20,
+                "units_sold": 4,
+                "revenue": 80,
+            }
+        ])
+
+        response = _build_analysis_response(
+            file_name="catalogo.csv",
+            rows=1,
+            columns=len(df.columns),
+            detected_columns=list(df.columns),
+            column_mapping={column: column for column in df.columns},
+            mapping_confidence={column: 1.0 for column in df.columns},
+            validation={"quality_score": 100, "missing_required_fields": []},
+            normalized_df=df,
+        )
+
+        self.assertIn("audit_core", response)
+        self.assertIn("data_readiness", response["audit_core"])
+        self.assertFalse(response["audit_core"]["business_health_score"]["available"])
+        json.dumps(response, allow_nan=False)
 
     def test_result_is_strict_json_serializable(self):
         json.dumps(self._build(), allow_nan=False)
