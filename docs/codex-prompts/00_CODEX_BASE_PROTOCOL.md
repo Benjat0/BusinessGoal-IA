@@ -46,6 +46,9 @@ python -m unittest discover -s backend/tests -p "test*.py"
 npm run build
 git diff --check
 
+Como atajo, ejecutar `./scripts/verify.sh` desde la raíz cuando las dependencias
+locales estén disponibles.
+
 Cuando aplique, ejecuta también:
 
 ./node_modules/.bin/tsc --noEmit

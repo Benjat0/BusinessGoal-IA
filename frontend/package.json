@@ -1,6 +1,6 @@
 {
-  "name": "businessgoal-ia-mvp-final-demo-ready",
-  "version": "1.0.0",
+  "name": "businessgoal-ia",
+  "version": "0.21.0",
   "private": true,
   "scripts": {
     "dev": "next dev",

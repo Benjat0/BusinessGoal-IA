@@ -23,6 +23,12 @@ IMPACT_CATEGORY_BY_RECOMMENDATION_CATEGORY: Dict[str, Dict[str, str]] = {
     "sales_protection": {"impact_category": "GROSS_MARGIN_AT_RISK", "impact_label": "Margen expuesto"},
 }
 
+PROBLEM_TYPE_BY_RECOMMENDATION_CATEGORY: Dict[str, str] = {
+    "cash_release": "CASH",
+    "margin_improvement": "MARGIN",
+    "sales_protection": "STOCKOUT_RISK",
+}
+
 HORIZON_DAYS_BY_DECISION_TYPE: Dict[str, int] = {
     "excess_stock": 30,
     "dead_stock": 14,
@@ -99,6 +105,36 @@ def _driver_hypotheses(recommendation: Dict[str, Any]) -> List[str]:
     return [str(item).strip() for item in candidates if isinstance(item, str) and item.strip()]
 
 
+def _decision_assumptions(recommendation: Dict[str, Any], category: str) -> List[str]:
+    assumptions = _driver_hypotheses(recommendation)
+    assumptions.append("El impacto es una estimación orientativa calculada con los datos disponibles.")
+    if category == "cash_release":
+        assumptions.append("La caja liberable no equivale a beneficio contable ni garantiza la venta del stock.")
+    elif category == "margin_improvement":
+        assumptions.append("No se dispone de una elasticidad de demanda validada para atribuir el efecto a un cambio de precio.")
+    elif category == "sales_protection":
+        assumptions.append("El margen expuesto no representa una venta perdida confirmada.")
+
+    deduplicated: List[str] = []
+    for assumption in assumptions:
+        clean = str(assumption).strip()
+        if clean and clean not in deduplicated:
+            deduplicated.append(clean)
+    return deduplicated
+
+
+def _risk_of_inaction(recommendation: Dict[str, Any], category: str) -> str:
+    explicit = recommendation.get("why_it_matters")
+    if isinstance(explicit, str) and explicit.strip():
+        return explicit.strip()
+    defaults = {
+        "cash_release": "Mantener la situación podría prolongar la inmovilización de caja en inventario.",
+        "margin_improvement": "No revisar la señal podría mantener el deterioro del margen observado.",
+        "sales_protection": "No revisar la disponibilidad podría aumentar la exposición a roturas de stock.",
+    }
+    return defaults.get(category, "No revisar la señal podría mantener la exposición económica detectada.")
+
+
 def _build_evidence_items(
     *,
     analysis_id: str,
@@ -167,6 +203,7 @@ def build_decisions(
             "rank": index,
             "title": str(recommendation.get("title") or "Decisión recomendada"),
             "decision_type": decision_type,
+            "problem_type": PROBLEM_TYPE_BY_RECOMMENDATION_CATEGORY.get(category, "OTHER"),
             "category": category,
             "status": "PENDING",
             "priority": str(recommendation.get("priority") or "medium"),
@@ -183,10 +220,12 @@ def build_decisions(
             "affected_products_count": int(recommendation.get("affected_products_count") or len(evidence_items)),
             "detection_summary": str(recommendation.get("what_happens") or recommendation.get("problem_description") or ""),
             "why_it_matters": str(recommendation.get("why_it_matters") or ""),
+            "risk_of_inaction": _risk_of_inaction(recommendation, category),
             "recommended_action": str(recommendation.get("recommended_action") or ""),
             "first_step": str(recommendation.get("first_step") or ""),
             "expected_business_effect": str(recommendation.get("expected_business_effect") or ""),
             "driver_hypotheses": _driver_hypotheses(recommendation),
+            "assumptions": _decision_assumptions(recommendation, category),
             "evidence_items": evidence_items,
             "selected_strategy": None,
             "selected_scenario": None,

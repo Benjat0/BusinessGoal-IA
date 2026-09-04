@@ -14,7 +14,7 @@ export function Sidebar({ activeTab, onTabChange }: { activeTab: TabId; onTabCha
         </div>
         <div>
           <p className="text-base font-semibold tracking-normal text-[var(--text-primary)]">BusinessGoal</p>
-          <p className="text-xs text-[var(--text-muted)]">Decision Intelligence</p>
+          <p className="text-xs text-[var(--text-muted)]">Control de negocio</p>
         </div>
       </div>
 

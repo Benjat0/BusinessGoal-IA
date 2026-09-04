@@ -42,19 +42,18 @@ export type IconName =
 
 export const NAV_GROUPS: NavigationGroup[] = [
   {
-    label: "Overview",
-    items: [{ id: "home", label: "Inicio", icon: "home" }],
+    label: "Control",
+    items: [{ id: "home", label: "Dashboard", icon: "home" }],
   },
   {
-    label: "Decision Intelligence",
+    label: "Decidir",
     items: [
       { id: "decisions", label: "Decisiones", icon: "decision" },
-      { id: "scenarios", label: "Escenarios", icon: "scenario" },
-      { id: "analysis", label: "Análisis", icon: "analysis" },
+      { id: "scenarios", label: "Scenario Lab", icon: "scenario" },
     ],
   },
   {
-    label: "Business",
+    label: "Negocio",
     items: [
       { id: "products", label: "Productos", icon: "product" },
       { id: "inventory", label: "Inventario", icon: "inventory" },
@@ -62,27 +61,23 @@ export const NAV_GROUPS: NavigationGroup[] = [
     ],
   },
   {
-    label: "Data",
-    items: [{ id: "data", label: "Datos", icon: "data" }],
+    label: "Datos",
+    items: [{ id: "data", label: "Archivos y calidad", icon: "data" }],
   },
   {
-    label: "Output",
-    items: [
-      { id: "reports", label: "Informes", icon: "report" },
-      { id: "history", label: "Historial", icon: "history" },
-    ],
+    label: "Seguimiento",
+    items: [{ id: "history", label: "Historial", icon: "history" }],
   },
 ];
 
 export const UTILITY_NAV: NavigationItem[] = [
-  { id: "ai", label: "BusinessGoal IA", icon: "ai" },
   { id: "settings", label: "Configuración", icon: "settings" },
 ];
 
 export const PAGE_METADATA: Record<TabId, { title: string; description: string; cta?: boolean; search?: boolean }> = {
   home: {
-    title: "Inicio",
-    description: "Visión económica de tu negocio.",
+    title: "Dashboard",
+    description: "Ventas, margen, inventario y decisiones prioritarias.",
     cta: true,
     search: true,
   },
@@ -120,8 +115,8 @@ export const PAGE_METADATA: Record<TabId, { title: string; description: string; 
     search: true,
   },
   data: {
-    title: "Datos",
-    description: "Revisa las fuentes y el modelo económico utilizado.",
+    title: "Archivos y calidad de datos",
+    description: "Revisa qué datos se reconocen, qué análisis son válidos y qué información falta.",
     cta: true,
   },
   reports: {

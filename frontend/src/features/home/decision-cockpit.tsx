@@ -212,7 +212,7 @@ export function DecisionCockpit({
 }: DecisionCockpitProps) {
   const isDemo = !result;
   const isLegacy = decisionMode === "LEGACY_ANALYSIS";
-  const score = result ? asNumber(result.summary_kpis?.business_score_current) : 82;
+  const readinessScore = result ? asNumber(result.audit_core?.data_readiness.score) : 94;
   const exposureCategories = result
     ? result.economic_value_summary?.categories ?? []
     : DEMO_EXPOSURE;
@@ -223,7 +223,13 @@ export function DecisionCockpit({
   const fileQuality = result ? asNumber(result.file_validation?.quality_score) : null;
   const mergeQuality = result ? asNumber(result.merge_summary?.merge_quality_score) : null;
   const productsCount = result ? asNumber(result.summary_kpis?.products_count) : null;
+  const revenue = result ? asNumber(result.summary_kpis?.total_revenue_estimated) : 128450;
+  const margin = result ? asNumber(result.summary_kpis?.average_margin_pct) : 31.8;
+  const inventoryValue = result ? asNumber(result.summary_kpis?.total_inventory_value) : 76420;
+  const slowMoving = result ? asNumber(result.summary_kpis?.high_stock_low_sales_products) : 12;
   const businessStatus = result?.business_status;
+  const stockoutRisk = result ? asNumber(businessStatus?.signals?.stockout_risk_count) : 5;
+  const urgentDecisions = decisions.filter((decision) => decision.priority === "high" && decision.status === "PENDING").length;
   const statusText = isDemo ? "Lectura de ejemplo" : businessStatus?.status || "Análisis activo";
   const statusMessage = businessStatus?.message || (isDemo
     ? "Vista demo con ejemplos de stock, ventas y margen para explorar la lectura ejecutiva."
@@ -254,13 +260,13 @@ export function DecisionCockpit({
           </div>
           <div className="mt-6 grid gap-4 lg:grid-cols-[.7fr_1.3fr]">
             <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-5">
-              <p className="text-sm font-semibold text-[var(--text-secondary)]">Business Score</p>
+              <p className="text-sm font-semibold text-[var(--text-secondary)]">Preparación de datos</p>
               <div className="mt-4 flex items-end gap-1">
-                <span className="text-5xl font-semibold text-[var(--text-primary)]">{score === null ? "—" : formatNumber(score, 0)}</span>
-                <span className="pb-2 text-xl font-semibold text-[var(--primary-soft)]">{score === null ? "" : "/100"}</span>
+                <span className="text-5xl font-semibold text-[var(--text-primary)]">{readinessScore === null ? "—" : formatNumber(readinessScore, 0)}</span>
+                <span className="pb-2 text-xl font-semibold text-[var(--primary-soft)]">{readinessScore === null ? "" : "/100"}</span>
               </div>
               <p className="mt-4 text-xs leading-5 text-[var(--text-muted)]">
-                Indicador ejecutivo de presión económica y operativa basado en los datos analizados.
+                Mide cobertura y calidad de los datos; no representa la salud global de la empresa.
               </p>
             </div>
             <div className="grid gap-3 sm:grid-cols-3">
@@ -284,6 +290,24 @@ export function DecisionCockpit({
           </Button>
         </Card>
       </section>
+
+      <Card className="p-5">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="page-overline">Control de negocio</p>
+            <h2 className="mt-2 section-title">Ventas, margen e inventario</h2>
+          </div>
+          <p className="text-xs text-[var(--text-muted)]">{result?.analysis_period?.label || "Periodo de ejemplo: últimos 90 días"}</p>
+        </div>
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+          <ExecutiveMetric label="Ventas" value={revenue === null ? "Sin dato" : formatCurrency(revenue)} detail="del periodo" />
+          <ExecutiveMetric label="Margen bruto" value={margin === null ? "Sin dato" : `${formatNumber(margin, 1)}%`} detail="sobre ventas cubiertas" />
+          <ExecutiveMetric label="Inventario" value={inventoryValue === null ? "Sin dato" : formatCurrency(inventoryValue)} detail="capital en stock" />
+          <ExecutiveMetric label="Baja rotación" value={slowMoving === null ? "Sin dato" : formatNumber(slowMoving, 0)} detail="referencias a revisar" tone="warning" />
+          <ExecutiveMetric label="Riesgo de rotura" value={stockoutRisk === null ? "Sin dato" : formatNumber(stockoutRisk, 0)} detail="señales detectadas" tone="risk" />
+          <ExecutiveMetric label="Atención inmediata" value={formatNumber(urgentDecisions, 0)} detail="decisiones de prioridad alta" tone="primary" />
+        </div>
+      </Card>
 
       <Card className="p-5">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -403,6 +427,23 @@ function ContextPill({ label, value }: { label: string; value: string | number }
     <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4">
       <p className="text-xs font-medium text-[var(--text-muted)]">{label}</p>
       <p className="mt-2 break-words text-sm font-semibold text-[var(--text-primary)]">{value}</p>
+    </div>
+  );
+}
+
+function ExecutiveMetric({ label, value, detail, tone = "default" }: { label: string; value: string; detail: string; tone?: "default" | "warning" | "risk" | "primary" }) {
+  const toneClass = tone === "risk"
+    ? "text-[var(--risk)]"
+    : tone === "warning"
+      ? "text-[var(--signal)]"
+      : tone === "primary"
+        ? "text-[var(--primary-soft)]"
+        : "text-[var(--text-primary)]";
+  return (
+    <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4">
+      <p className="text-xs font-medium text-[var(--text-muted)]">{label}</p>
+      <p className={cn("mt-2 text-xl font-semibold", toneClass)}>{value}</p>
+      <p className="mt-1 text-xs leading-5 text-[var(--text-muted)]">{detail}</p>
     </div>
   );
 }

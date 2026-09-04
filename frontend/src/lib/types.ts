@@ -455,6 +455,7 @@ export type Decision = {
   rank: number;
   title: string;
   decision_type: string;
+  problem_type?: "CASH" | "MARGIN" | "STOCKOUT_RISK" | "OTHER" | string;
   category: string;
   status: DecisionStatus;
   priority: RecommendationPriority;
@@ -471,10 +472,12 @@ export type Decision = {
   affected_products_count: number;
   detection_summary: string;
   why_it_matters: string;
+  risk_of_inaction?: string;
   recommended_action: string;
   first_step: string;
   expected_business_effect: string;
   driver_hypotheses: string[];
+  assumptions?: string[];
   evidence_items: DecisionEvidenceItem[];
   economic_driver_tree?: EconomicDriverTree;
   scenario_options?: DecisionScenarioOption[];
@@ -501,6 +504,9 @@ export type DecisionLocalState = {
   economic_target: number | null;
   target_date: string | null;
   user_note: string | null;
+  responsible: string | null;
+  decision_reason: string | null;
+  review_date: string | null;
   decided_at: string | null;
   completed_at: string | null;
   updated_at: string;
@@ -517,6 +523,9 @@ export type DecisionRecord = Omit<
   economic_target: number | null;
   target_date: string | null;
   user_note: string | null;
+  responsible: string | null;
+  decision_reason: string | null;
+  review_date: string | null;
   decided_at: string | null;
   completed_at: string | null;
   updated_at: string | null;
@@ -632,6 +641,40 @@ export type RetailTemplateFit = {
   warnings: string[];
 };
 
+export type AuditAreaStatus = "ASSESSED" | "NOT_ASSESSED" | "NOT_AVAILABLE" | string;
+
+export type AuditArea = {
+  key: string;
+  label: string;
+  status: AuditAreaStatus;
+  confidence: number;
+  missing_fields: string[];
+  missing_metrics: string[];
+  next_inputs: string[];
+};
+
+export type AuditCore = {
+  version: string;
+  scope_status: "PARTIAL_AUDIT" | "SUPPORTED_SCOPE" | string;
+  scope_label: string;
+  data_readiness: {
+    score: number;
+    confidence: "HIGH" | "MEDIUM" | "LOW" | string;
+    components: Record<string, number>;
+    summary: string;
+  };
+  business_health_score: {
+    available: boolean;
+    score: number | null;
+    reason: string;
+  };
+  areas: AuditArea[];
+  assessed_area_count: number;
+  total_area_count: number;
+  recommended_next_inputs: string[];
+  limitations: string[];
+};
+
 export type AnalyzeResponse = {
   analysis_id: string;
   analysis_created_at: string;
@@ -659,6 +702,7 @@ export type AnalyzeResponse = {
   impact_breakdown?: ImpactBreakdown;
   economic_value_summary?: EconomicValueSummary;
   retail_template_fit?: RetailTemplateFit;
+  audit_core?: AuditCore;
   analysis_snapshot?: AnalysisSnapshot;
   trust_layer?: TrustLayer;
   scenario_simulation?: ScenarioSimulation;

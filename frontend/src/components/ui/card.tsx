@@ -6,8 +6,8 @@ type CardVariant = "default" | "elevated" | "subtle";
 
 const variants: Record<CardVariant, string> = {
   default: "border-[var(--border)] bg-[var(--surface-1)]",
-  elevated: "border-[var(--border-strong)] bg-[var(--surface-elevated)] shadow-[0_18px_42px_rgba(0,0,0,0.24)]",
-  subtle: "border-[rgba(39,52,67,0.72)] bg-[rgba(16,23,32,0.58)]",
+  elevated: "border-[var(--border-strong)] bg-[var(--surface-elevated)] shadow-[0_14px_36px_rgba(15,23,42,0.08)]",
+  subtle: "border-[var(--border)] bg-[var(--surface-2)]",
 };
 
 type CardProps = HTMLAttributes<HTMLElement> & {
