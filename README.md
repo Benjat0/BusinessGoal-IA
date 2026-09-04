@@ -15,7 +15,7 @@ La rama `main` contiene el MVP demo y la evolución v20 del Decision Center:
 - plantilla de encaje Retail / ecommerce;
 - informe ejecutivo y exportaciones.
 
-La rama `codex/v21-0-audit-core-data-readiness` añade Audit Core v21.0: separa la calidad de datos de la salud empresarial y muestra de forma explícita qué áreas son o no evaluables.
+La rama `codex/v21-0-audit-core-data-readiness` incorpora Audit Core v21.0 y el Decision Cockpit v21.1: separa la calidad de datos de la salud empresarial, muestra qué áreas son evaluables y completa el registro operativo de decisiones y escenarios.
 
 ## Principio de producto
 
@@ -35,6 +35,8 @@ Las cifras económicas se presentan con su semántica: caja liberable, margen me
 El motor actual está validado para retail, e-commerce, distribución y negocios con catálogo. La expansión multisector se hará mediante un Audit Core común y plantillas específicas de datos y reglas, no interpretando cualquier documento sin límites.
 
 Consulta [Audit Core v21.0](docs/product/v21-audit-core-data-readiness.md) para el alcance, contrato y exclusiones de la fase.
+Consulta [Sellable Decision Cockpit v21.1](docs/product/v21-1-sellable-decision-cockpit.md) para el flujo comercial demostrable y los cambios de interfaz.
+Consulta [la guía de demo actual](docs/DEMO_CURRENT.md) para reproducir el flujo sin datos de clientes.
 
 ## Stack
 
@@ -79,10 +81,7 @@ POST /compare-analysis-snapshots
 ## Validación
 
 ```bash
-python -m unittest discover -s backend/tests -p "test*.py"
-cd frontend && npm run build
-cd frontend && ./node_modules/.bin/tsc --noEmit
-git diff --check
+./scripts/verify.sh
 ```
 
 ## Próximos bloques de producto

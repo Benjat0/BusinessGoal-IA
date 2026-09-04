@@ -35,8 +35,8 @@ from core.recommendation_engine import (
 
 app = FastAPI(
     title="BusinessGoal IA",
-    description="Copiloto de decisiones empresariales para negocios con stock, ventas e inventario.",
-    version="0.5.0-multi-file-analysis",
+    description="Inteligencia de decisiones y auditoría de datos para negocios con catálogo, ventas, stock, costes y precios.",
+    version="21.0.0",
 )
 
 app.add_middleware(

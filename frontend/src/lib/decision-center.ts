@@ -138,6 +138,9 @@ function normalizeDecisionState(value: unknown): DecisionLocalState | null {
     economic_target: finiteNumberOrNull(value.economic_target),
     target_date: stringOrNull(value.target_date),
     user_note: stringOrNull(value.user_note),
+    responsible: stringOrNull(value.responsible),
+    decision_reason: stringOrNull(value.decision_reason),
+    review_date: stringOrNull(value.review_date),
     decided_at: stringOrNull(value.decided_at),
     completed_at: stringOrNull(value.completed_at),
     updated_at: updatedAt,
@@ -201,6 +204,9 @@ export function hydrateDecisions(decisions: Decision[], states: DecisionLocalSta
       economic_target: localState?.economic_target ?? decision.economic_target ?? null,
       target_date: localState?.target_date ?? decision.target_date ?? null,
       user_note: localState?.user_note ?? decision.user_note ?? null,
+      responsible: localState?.responsible ?? null,
+      decision_reason: localState?.decision_reason ?? null,
+      review_date: localState?.review_date ?? null,
       decided_at: localState?.decided_at ?? null,
       completed_at: localState?.completed_at ?? null,
       updated_at: localState?.updated_at ?? null,
@@ -213,7 +219,7 @@ export function hydrateDecisions(decisions: Decision[], states: DecisionLocalSta
 export function updateDecisionState(
   states: DecisionLocalState[],
   decision: DecisionRecord,
-  updates: Partial<Pick<DecisionLocalState, "status" | "selected_strategy" | "selected_scenario" | "economic_target" | "target_date" | "user_note">>,
+  updates: Partial<Pick<DecisionLocalState, "status" | "selected_strategy" | "selected_scenario" | "economic_target" | "target_date" | "user_note" | "responsible" | "decision_reason" | "review_date">>,
   now = new Date().toISOString(),
 ): DecisionLocalState[] {
   if (isDemoId(decision.id)) return states;
@@ -247,6 +253,9 @@ export function updateDecisionState(
     economic_target: updates.economic_target ?? current?.economic_target ?? decision.economic_target ?? null,
     target_date: updates.target_date ?? current?.target_date ?? decision.target_date ?? null,
     user_note: updates.user_note ?? current?.user_note ?? decision.user_note ?? null,
+    responsible: updates.responsible ?? current?.responsible ?? decision.responsible ?? null,
+    decision_reason: updates.decision_reason ?? current?.decision_reason ?? decision.decision_reason ?? null,
+    review_date: updates.review_date ?? current?.review_date ?? decision.review_date ?? null,
     decided_at: current?.decided_at ?? (toStatus === "DECIDED" ? now : null),
     completed_at: toStatus === "COMPLETED" ? current?.completed_at ?? now : null,
     updated_at: now,

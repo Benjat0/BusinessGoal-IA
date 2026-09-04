@@ -1,8 +1,10 @@
 # GIT SAFETY RULES
 
-Repositorio principal esperado:
+Repositorio principal:
 
-/Users/benataguirrezabalaga/Downloads/businessgoal-ia-mvp-v18-export-sidebar-fix
+El checkout activo que corresponda al repositorio remoto `BusinessGoal-IA`. Antes de
+modificarlo, confirmar la rama, el commit base y el remoto con `git status`,
+`git branch --show-current`, `git rev-parse HEAD` y `git remote -v`.
 
 Reglas:
 

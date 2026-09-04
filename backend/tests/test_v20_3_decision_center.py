@@ -89,6 +89,10 @@ class V203DecisionCenterTests(unittest.TestCase):
         self.assertEqual(decision["status"], "PENDING")
         self.assertEqual(decision["estimated_impact"], 120.0)
         self.assertEqual(decision["recommended_action"], "Crear una campaña de liquidación.")
+        self.assertEqual(decision["problem_type"], "CASH")
+        self.assertEqual(decision["risk_of_inaction"], "Hay caja inmovilizada.")
+        self.assertIn("El impacto es una estimación orientativa calculada con los datos disponibles.", decision["assumptions"])
+        self.assertIn("La caja liberable no equivale a beneficio contable ni garantiza la venta del stock.", decision["assumptions"])
 
     def test_deterministic_id_with_same_analysis_and_key(self):
         first = self._decisions()[0]
@@ -128,6 +132,7 @@ class V203DecisionCenterTests(unittest.TestCase):
 
         self.assertEqual(decision["impact_category"], "GROSS_MARGIN_AT_RISK")
         self.assertEqual(decision["impact_label"], "Margen expuesto")
+        self.assertEqual(decision["problem_type"], "STOCKOUT_RISK")
 
     def test_no_additive_total_fields_are_used(self):
         rec = self._recommendation(

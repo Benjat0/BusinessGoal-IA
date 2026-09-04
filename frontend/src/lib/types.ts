@@ -455,6 +455,7 @@ export type Decision = {
   rank: number;
   title: string;
   decision_type: string;
+  problem_type?: "CASH" | "MARGIN" | "STOCKOUT_RISK" | "OTHER" | string;
   category: string;
   status: DecisionStatus;
   priority: RecommendationPriority;
@@ -471,10 +472,12 @@ export type Decision = {
   affected_products_count: number;
   detection_summary: string;
   why_it_matters: string;
+  risk_of_inaction?: string;
   recommended_action: string;
   first_step: string;
   expected_business_effect: string;
   driver_hypotheses: string[];
+  assumptions?: string[];
   evidence_items: DecisionEvidenceItem[];
   economic_driver_tree?: EconomicDriverTree;
   scenario_options?: DecisionScenarioOption[];
@@ -501,6 +504,9 @@ export type DecisionLocalState = {
   economic_target: number | null;
   target_date: string | null;
   user_note: string | null;
+  responsible: string | null;
+  decision_reason: string | null;
+  review_date: string | null;
   decided_at: string | null;
   completed_at: string | null;
   updated_at: string;
@@ -517,6 +523,9 @@ export type DecisionRecord = Omit<
   economic_target: number | null;
   target_date: string | null;
   user_note: string | null;
+  responsible: string | null;
+  decision_reason: string | null;
+  review_date: string | null;
   decided_at: string | null;
   completed_at: string | null;
   updated_at: string | null;

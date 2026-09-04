@@ -30,6 +30,9 @@ type DecisionUpdate = {
   economic_target?: number | null;
   target_date?: string | null;
   user_note?: string | null;
+  responsible?: string | null;
+  decision_reason?: string | null;
+  review_date?: string | null;
 };
 
 type DecisionCenterViewProps = {
@@ -916,6 +919,9 @@ export function DecisionDetailDrawer({ decision, onClose, onUpdate }: DecisionDe
   const [economicTarget, setEconomicTarget] = useState(decision.economic_target === null ? "" : String(decision.economic_target));
   const [targetDate, setTargetDate] = useState(decision.target_date ?? "");
   const [userNote, setUserNote] = useState(decision.user_note ?? "");
+  const [responsible, setResponsible] = useState(decision.responsible ?? "");
+  const [decisionReason, setDecisionReason] = useState(decision.decision_reason ?? "");
+  const [reviewDate, setReviewDate] = useState(decision.review_date ?? "");
   const transitions = allowedDecisionTransitions(decision.status);
   const secondaryTransitions = decision.status === "PENDING"
     ? transitions.filter((nextStatus) => nextStatus !== "DECIDED")
@@ -939,6 +945,9 @@ export function DecisionDetailDrawer({ decision, onClose, onUpdate }: DecisionDe
       economic_target: parsedTarget !== null && Number.isFinite(parsedTarget) ? parsedTarget : null,
       target_date: targetDate || null,
       user_note: userNote.trim() || null,
+      responsible: responsible.trim() || null,
+      decision_reason: decisionReason.trim() || null,
+      review_date: reviewDate || null,
     }, "Decisión registrada.");
   }
 
@@ -970,6 +979,7 @@ export function DecisionDetailDrawer({ decision, onClose, onUpdate }: DecisionDe
 
         <TextSection title="Detección" text={decision.detection_summary} />
         <TextSection title="Por qué importa" text={decision.why_it_matters} />
+        <TextSection title="Riesgo de no actuar" text={decision.risk_of_inaction || decision.why_it_matters} />
         <TextSection title="Acción recomendada" text={decision.recommended_action} />
         <TextSection title="Primer paso" text={decision.first_step} />
         <TextSection title="Efecto esperado" text={decision.expected_business_effect} />
@@ -979,6 +989,15 @@ export function DecisionDetailDrawer({ decision, onClose, onUpdate }: DecisionDe
             <p className="text-sm font-semibold text-[var(--text-primary)]">Hipótesis de causa</p>
             <ul className="mt-2 space-y-2 text-sm leading-6 text-[var(--text-secondary)]">
               {decision.driver_hypotheses.map((item) => <li key={item}>{item}</li>)}
+            </ul>
+          </section>
+        ) : null}
+
+        {decision.assumptions?.length ? (
+          <section className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4">
+            <p className="text-sm font-semibold text-[var(--text-primary)]">Supuestos de la estimación</p>
+            <ul className="mt-2 space-y-2 text-sm leading-6 text-[var(--text-secondary)]">
+              {decision.assumptions.map((item) => <li key={item}>{item}</li>)}
             </ul>
           </section>
         ) : null}
@@ -1022,6 +1041,11 @@ export function DecisionDetailDrawer({ decision, onClose, onUpdate }: DecisionDe
               ) : null}
               <input value={selectedStrategy} onChange={(event) => setSelectedStrategy(event.target.value)} placeholder="Estrategia seleccionada" className="app-input w-full rounded-xl px-4 py-3 text-sm outline-none" />
               <div className="grid gap-3 sm:grid-cols-2">
+                <input value={responsible} onChange={(event) => setResponsible(event.target.value)} placeholder="Persona responsable" className="app-input w-full rounded-xl px-4 py-3 text-sm outline-none" />
+                <input value={reviewDate} onChange={(event) => setReviewDate(event.target.value)} type="date" aria-label="Próxima fecha de revisión" className="app-input w-full rounded-xl px-4 py-3 text-sm outline-none" />
+              </div>
+              <textarea value={decisionReason} onChange={(event) => setDecisionReason(event.target.value)} placeholder="Motivo de la decisión" className="app-input min-h-20 w-full rounded-xl px-4 py-3 text-sm outline-none" />
+              <div className="grid gap-3 sm:grid-cols-2">
                 <input value={economicTarget} onChange={(event) => setEconomicTarget(event.target.value)} type="number" placeholder="Objetivo económico" className="app-input w-full rounded-xl px-4 py-3 text-sm outline-none" />
                 <input value={targetDate} onChange={(event) => setTargetDate(event.target.value)} type="date" className="app-input w-full rounded-xl px-4 py-3 text-sm outline-none" />
               </div>
@@ -1032,8 +1056,11 @@ export function DecisionDetailDrawer({ decision, onClose, onUpdate }: DecisionDe
             <div className="mt-4 grid gap-3 text-sm text-[var(--text-secondary)]">
               {decision.selected_scenario ? <InfoRow label="Escenario seleccionado" value={decision.selected_scenario.split(":").pop() || decision.selected_scenario} /> : null}
               {decision.selected_strategy ? <InfoRow label="Estrategia" value={decision.selected_strategy} /> : null}
+              {decision.responsible ? <InfoRow label="Responsable" value={decision.responsible} /> : null}
+              {decision.decision_reason ? <InfoRow label="Motivo" value={decision.decision_reason} /> : null}
               {decision.economic_target !== null ? <InfoRow label="Objetivo económico" value={formatCurrency(decision.economic_target)} /> : null}
               {decision.target_date ? <InfoRow label="Fecha objetivo" value={decision.target_date} /> : null}
+              {decision.review_date ? <InfoRow label="Próxima revisión" value={decision.review_date} /> : null}
               {decision.user_note ? <InfoRow label="Nota local" value={decision.user_note} /> : null}
             </div>
           )}

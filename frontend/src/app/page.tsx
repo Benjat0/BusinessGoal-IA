@@ -670,7 +670,7 @@ export default function Home() {
 
   function applyDecisionUpdate(
     decision: DecisionRecord,
-    updates: Partial<Pick<DecisionLocalState, "status" | "selected_strategy" | "selected_scenario" | "economic_target" | "target_date" | "user_note">>,
+    updates: Partial<Pick<DecisionLocalState, "status" | "selected_strategy" | "selected_scenario" | "economic_target" | "target_date" | "user_note" | "responsible" | "decision_reason" | "review_date">>,
     toastMessage?: string,
   ) {
     if (isDemoId(decision.id)) {
@@ -822,7 +822,7 @@ export default function Home() {
         {activeTab === "inventory" && <InventorySalesView mode="inventory" result={result} products={filteredProducts} />}
         {activeTab === "sales" && <InventorySalesView mode="sales" result={result} products={filteredProducts} />}
         {activeTab === "reports" && <ExecutiveReport result={result} recommendations={recommendations} summary={summary} historyItem={activeHistory} />}
-        {activeTab === "history" && <HistoryView history={history} setResult={setResult} setActiveTab={setActiveTab} />}
+        {activeTab === "history" && <HistoryView history={history} decisions={activeDecisions} setResult={setResult} setActiveTab={setActiveTab} />}
         {activeTab === "ai" && <AIContextView result={result} recommendations={recommendations} />}
         {activeTab === "settings" && <SettingsView businessProfile={businessProfile} setBusinessProfile={setBusinessProfile} />}
       </AppShell>
@@ -1756,19 +1756,49 @@ function ReportMetric({ label, value, tone }: { label: string; value: string | n
 
 function ActionPeriod({ title, items, light = false }: { title: string; items: string[]; light?: boolean }) { return <div className={cn("rounded-2xl border p-4", light ? "border-slate-200 bg-slate-50" : "border-slate-800 bg-black/20")}><p className={cn("font-black", light ? "text-slate-950" : "text-white")}>{title}</p><ul className={cn("mt-3 space-y-2 text-sm", light ? "text-slate-700" : "text-slate-400")}>{items.map((item) => <li key={item}>• {item}</li>)}</ul></div>; }
 
-function HistoryView({ history, setResult, setActiveTab }: { history: HistoryItem[]; setResult: (value: AnalyzeResponse | null) => void; setActiveTab: (tab: TabId) => void }) {
+function HistoryView({ history, decisions, setResult, setActiveTab }: { history: HistoryItem[]; decisions: DecisionRecord[]; setResult: (value: AnalyzeResponse | null) => void; setActiveTab: (tab: TabId) => void }) {
+  const registeredDecisions = decisions.filter((decision) => decision.status !== "PENDING");
   return (
     <div className="space-y-5">
       <Card>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-2xl font-semibold text-[var(--text-primary)]">Historial de análisis</h1>
-            <p className="mt-1 text-sm text-[var(--text-secondary)]">Análisis guardados localmente durante la demo.</p>
+            <h1 className="text-2xl font-semibold text-[var(--text-primary)]">Historial operativo</h1>
+            <p className="mt-1 text-sm text-[var(--text-secondary)]">Decisiones registradas y análisis conservados en este navegador.</p>
           </div>
           <Button onClick={() => exportHistoryToCsv(history)} variant="secondary" size="sm">Exportar historial CSV</Button>
         </div>
       </Card>
       <Card>
+        <div className="mb-4">
+          <h2 className="section-title">Decisiones registradas</h2>
+          <p className="mt-1 text-sm text-[var(--text-secondary)]">Trazabilidad de la decisión, responsable, escenario e impacto esperado.</p>
+        </div>
+        {registeredDecisions.length ? (
+          <div className="overflow-x-auto">
+            <Table className="min-w-[980px]">
+              <TableHead><TableRow><TableHeaderCell>Decisión</TableHeaderCell><TableHeaderCell>Estado</TableHeaderCell><TableHeaderCell>Responsable</TableHeaderCell><TableHeaderCell>Escenario</TableHeaderCell><TableHeaderCell className="text-right">Impacto esperado</TableHeaderCell><TableHeaderCell>Próxima revisión</TableHeaderCell><TableHeaderCell>Motivo</TableHeaderCell></TableRow></TableHead>
+              <TableBody>
+                {registeredDecisions.map((decision) => (
+                  <TableRow key={decision.id}>
+                    <TableCell><p className="font-semibold text-[var(--text-primary)]">{decision.title}</p><p className="mt-1 text-xs text-[var(--text-muted)]">{dateLabel(decision.decided_at || decision.updated_at || decision.created_at)}</p></TableCell>
+                    <TableCell>{decision.status}</TableCell>
+                    <TableCell>{decision.responsible || "Sin asignar"}</TableCell>
+                    <TableCell>{decision.scenario_options?.find((scenario) => scenario.id === decision.selected_scenario)?.label || "Sin escenario"}</TableCell>
+                    <TableCell numeric className="font-semibold text-[var(--value)]">{decision.economic_target === null ? "—" : formatCurrency(decision.economic_target)}</TableCell>
+                    <TableCell>{decision.review_date || "Sin fecha"}</TableCell>
+                    <TableCell>{decision.decision_reason || decision.user_note || "Sin nota"}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        ) : (
+          <EmptyState title="Todavía no hay decisiones registradas" text="Selecciona un escenario dentro de una oportunidad y registra la decisión para verla aquí." />
+        )}
+      </Card>
+      <Card>
+        <div className="mb-4"><h2 className="section-title">Análisis guardados</h2></div>
         <div className="overflow-x-auto">
           <Table className="min-w-[820px]">
             <TableHead><TableRow><TableHeaderCell>Fecha</TableHeaderCell><TableHeaderCell>Archivos</TableHeaderCell><TableHeaderCell className="text-right">Lectura económica</TableHeaderCell><TableHeaderCell className="text-right">Oportunidades</TableHeaderCell><TableHeaderCell className="text-right">Score</TableHeaderCell><TableHeaderCell className="text-right">Calidad</TableHeaderCell><TableHeaderCell>Acción</TableHeaderCell></TableRow></TableHead>
